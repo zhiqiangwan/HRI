@@ -10,17 +10,17 @@ environment setup
 import numpy as np
 
 interact_region = 1.5  #when distance > interact_region, no social force
-num_pedestrains = 200
+num_pedestrains = 300
 #parameters of human-human interaction force
 A_hhi = 2.6
 B_hhi = 0.31
-k_body_hhi = 15
+k_body_hhi = 20
 radius_hh = 0.4 #radius of two humans
 #parameters of human-wall interaction force
 A_hwi = 15
 B_hwi = 0.1
 radius_h = 0.5 * radius_hh #radius of one human
-k_body_hwi = 15
+k_body_hwi = 20
 #parameters of human-robot interaction force
 A_hri = 10
 B_hri = 1

@@ -14,13 +14,17 @@ num_pedestrains = 300
 #parameters of human-human interaction force
 A_hhi = 2.6
 B_hhi = 0.31
-k_body_hhi = 20
+#k_body_hhi = 2000
+k_fric_hhi = 1000
 radius_hh = 0.4 #radius of two humans
+D_0 = 0.31
+D_1 = 0.45
+const_lambda = 0.25
 #parameters of human-wall interaction force
 A_hwi = 15
 B_hwi = 0.1
 radius_h = 0.5 * radius_hh #radius of one human
-k_body_hwi = 20
+k_body_hwi = 2000#20
 #parameters of human-robot interaction force
 A_hri = 10
 B_hri = 1
@@ -31,7 +35,7 @@ accel_time = 0.5
 desired_speed = 2 + 0.3 * np.random.randn(num_pedestrains, 1)
 
 
-def human_human_force(pos_x, pos_y):
+def human_human_force(pos_x, pos_y, time_step, vel_x, vel_y):
     """Calculate the interaction force between human and human.
 
     Note: make sure the shape of pos_x and pos_y is N x 1 not N.
@@ -50,20 +54,102 @@ def human_human_force(pos_x, pos_y):
     pos_x_tile_row = np.transpose(pos_x_tile_col)
     pos_y_tile_col = np.tile(pos_y, (1, np.shape(pos_y)[0]))
     pos_y_tile_row = np.transpose(pos_y_tile_col)
-    distance_x = pos_x_tile_row - pos_x_tile_col
+    distance_x = pos_x_tile_row - pos_x_tile_col  #x_i - x_j
     distance_y = pos_y_tile_row - pos_y_tile_col
+    
     distance = np.sqrt(np.square(distance_x) + np.square(distance_y))
     distance_add_idetity = distance + np.identity(np.shape(distance)[0]) #add identity to avoid divide by 0
     distance_x_norm = np.divide(distance_x, distance_add_idetity)
-    distance_y_norm = np.divide(distance_y, distance_add_idetity)    
+    distance_y_norm = np.divide(distance_y, distance_add_idetity)  
     
-    f_interact = np.multiply( np.exp( np.divide((radius_hh - distance), B_hhi) ), A_hhi )
-    f_body = np.multiply( np.maximum( (radius_hh - distance), np.zeros( np.shape(distance) ) ), k_body_hhi )
-    f_hhi = f_interact + f_body    
-    f_hhi_x = np.multiply( f_hhi, distance_x_norm ) 
-    f_hhi_y = np.multiply( f_hhi, distance_y_norm )
+#    if time_step < 50:
+#        f_interact = np.multiply( np.exp( np.divide((radius_hh - distance), B_hhi) ), A_hhi )
+#        f_body = np.multiply( np.maximum( (radius_hh - distance), np.zeros( np.shape(distance) ) ), k_body_hhi )
+#        f_hhi = f_interact + f_body
+#    else:
+#        distance_not_less_than_rh = np.maximum( distance_add_idetity, 0.3*np.ones( np.shape(distance) ) )
+#        f_hhi = np.multiply( np.exp( np.divide(-distance, D_0)+np.square( np.divide( D_1, distance_not_less_than_rh ) ) ) , A_hhi )
+#    f_hhi_x = np.multiply( f_hhi, distance_x_norm ) 
+#    f_hhi_y = np.multiply( f_hhi, distance_y_norm )
+
+    vel_x_tile_col = np.tile( vel_x, (1, np.shape(vel_x)[0]) )
+    vel_x_tile_row = np.transpose( vel_x_tile_col )
+    vel_y_tile_col = np.tile( vel_y, (1, np.shape(vel_y)[0]) )
+    vel_y_tile_row = np.transpose( vel_y_tile_col )
+    vel_dif_x = vel_x_tile_col - vel_x_tile_row  #v_j - v_i
+    vel_dif_y = vel_y_tile_col - vel_y_tile_row
+    
+
+    distance_y_norm_square = np.square( distance_y_norm )
+    distance_x_norm_square = np.square( distance_x_norm )
+    distance_x_norm_mul_y_norm = np.multiply( distance_x_norm, distance_y_norm )
+    f_slid_friction_vel_x = np.multiply( vel_dif_x, np.multiply( np.maximum( (radius_hh - distance), np.zeros( np.shape(distance) ) ), k_fric_hhi ) )
+    f_slid_friction_vel_y = np.multiply( vel_dif_y, np.multiply( np.maximum( (radius_hh - distance), np.zeros( np.shape(distance) ) ), k_fric_hhi ) )
+    f_slid_friction_x = np.multiply(distance_y_norm_square, f_slid_friction_vel_x) - np.multiply(distance_x_norm_mul_y_norm, f_slid_friction_vel_y)
+    f_slid_friction_y = -np.multiply(distance_x_norm_mul_y_norm, f_slid_friction_vel_x) + np.multiply(distance_x_norm_square, f_slid_friction_vel_y)
+
+
+    distance_not_less_than_rh = np.maximum( distance_add_idetity, 0.1*np.ones( np.shape(distance) ) )
+    f_hhi = np.multiply( np.exp( np.divide(-distance, D_0)+0.5*np.square( np.divide( D_1, distance_not_less_than_rh ) ) ) , A_hhi )
+
+    f_hhi_x = f_slid_friction_x + np.multiply( f_hhi, distance_x_norm ) 
+    f_hhi_y = f_slid_friction_y + np.multiply( f_hhi, distance_y_norm )  
+#    f_hhi_x =  np.multiply( f_hhi, distance_x_norm ) 
+#    f_hhi_y =  np.multiply( f_hhi, distance_y_norm ) 
     
     return f_hhi_x, f_hhi_y
+  
+    
+#def human_wall_force(pos_x, pos_y):
+#    """Calculate the interaction force between human and wall.
+#
+#    Note: make sure the shape of pos_x and pos_y is N x 1 not N.
+#
+#    Args:
+#      pos_x: A vector(N x 1) which represents the postion of human in x axis.
+#      pos_y: A vector(N x 1) which represents the postion of human in y axis.
+#      
+#    Return:
+#      f_hw_x: An vector(N x 1) which represents the human-wall interaction force in x axis. 
+#      f_hw_y: An vector(N x 1) which represents the human-wall interaction force in y axis.
+#
+#    """    
+#    num_humans = np.shape(pos_x)[0]
+#    f_hw_x = np.zeros( (num_humans, 1) )
+#    f_hw_y = np.zeros( (num_humans, 1) )
+#    for human_index in range(num_humans):
+#        if pos_y[human_index] > 6:
+#            distance_hw = np.abs( 8 - pos_y[human_index] )
+#            f_hw = np.multiply( np.exp( np.divide( (radius_h - distance_hw),B_hwi ) ), A_hwi ) #+ np.multiply( np.maximum( (radius_h - distance_hw), 0 ) ,k_body_hwi )
+#            f_index_hw_y = np.multiply(f_hw, -1)
+#            f_index_hw_x = np.zeros(1)
+#        elif pos_x[human_index] >= 4 and pos_y[human_index] < 6:
+#            distance_hw = np.abs( pos_y[human_index] - 4 )
+#            f_hw = np.multiply( np.exp( np.divide( (radius_h - distance_hw),B_hwi ) ), A_hwi ) #+ np.multiply( np.maximum( (radius_h - distance_hw), 0 ) ,k_body_hwi )
+#            f_index_hw_y = np.multiply(f_hw, 1)
+#            f_index_hw_x = np.zeros(1)
+#        elif pos_x[human_index] < 4 and pos_y[human_index] < 4:
+#            distance_hw = np.abs( pos_x[human_index] - 4 )
+#            f_hw = np.multiply( np.exp( np.divide( (radius_h - distance_hw),B_hwi ) ), A_hwi ) #+ np.multiply( np.maximum( (radius_h - distance_hw), 0 ) ,k_body_hwi )
+#            f_index_hw_y = np.zeros(1)
+#            f_index_hw_x = np.multiply(f_hw, -1)
+#        elif pos_x[human_index] < 4 and pos_y[human_index] < 6 and pos_y[human_index] > 4 and np.sqrt(np.square(pos_x[human_index]-4) + np.square(pos_y[human_index]-4)) < 2:
+#            distance_hw_x = pos_x[human_index] - 4
+#            distance_hw_y = pos_y[human_index] - 4
+#            distance_hw = np.sqrt(np.square(distance_hw_x) + np.square(distance_hw_y))
+#            f_hw = np.multiply( np.exp( np.divide( (radius_h - distance_hw),B_hwi ) ), A_hwi ) #+ np.multiply( np.maximum( (radius_h - distance_hw), 0 ) ,k_body_hwi )
+#            distance_hw_norm_x = np.divide( distance_hw_x, distance_hw )
+#            distance_hw_norm_y = np.divide( distance_hw_y, distance_hw )
+#            f_index_hw_y = np.multiply( f_hw, distance_hw_norm_y )
+#            f_index_hw_x = np.multiply( f_hw, distance_hw_norm_x )
+#        else:
+#            f_index_hw_y = np.zeros(1)
+#            f_index_hw_x = np.zeros(1)
+#    
+#        f_hw_x[human_index] = f_index_hw_x
+#        f_hw_y[human_index] = f_index_hw_y    
+#
+#    return f_hw_x, f_hw_y  
 
 def human_wall_force(pos_x, pos_y):
     """Calculate the interaction force between human and wall.
@@ -88,16 +174,21 @@ def human_wall_force(pos_x, pos_y):
             f_hw = np.multiply( np.exp( np.divide( (radius_h - distance_hw),B_hwi ) ), A_hwi ) + np.multiply( np.maximum( (radius_h - distance_hw), 0 ) ,k_body_hwi )
             f_index_hw_y = np.multiply(f_hw, -1)
             f_index_hw_x = np.zeros(1)
-        elif pos_x[human_index] >= 4 and pos_y[human_index] < 6:
+        elif (pos_x[human_index] >= 4 or pos_x[human_index] < 0) and pos_y[human_index] < 6 and pos_y[human_index] > 4:
             distance_hw = np.abs( pos_y[human_index] - 4 )
             f_hw = np.multiply( np.exp( np.divide( (radius_h - distance_hw),B_hwi ) ), A_hwi ) + np.multiply( np.maximum( (radius_h - distance_hw), 0 ) ,k_body_hwi )
             f_index_hw_y = np.multiply(f_hw, 1)
             f_index_hw_x = np.zeros(1)
-        elif pos_x[human_index] < 4 and pos_y[human_index] < 4:
+        elif pos_x[human_index] < 4 and pos_x[human_index] > 2 and pos_y[human_index] < 4:
             distance_hw = np.abs( pos_x[human_index] - 4 )
             f_hw = np.multiply( np.exp( np.divide( (radius_h - distance_hw),B_hwi ) ), A_hwi ) + np.multiply( np.maximum( (radius_h - distance_hw), 0 ) ,k_body_hwi )
             f_index_hw_y = np.zeros(1)
             f_index_hw_x = np.multiply(f_hw, -1)
+        elif pos_x[human_index] < 2 and pos_x[human_index] > 0 and pos_y[human_index] < 4:
+            distance_hw = np.abs( pos_x[human_index] )
+            f_hw = np.multiply( np.exp( np.divide( (radius_h - distance_hw),B_hwi ) ), A_hwi ) + np.multiply( np.maximum( (radius_h - distance_hw), 0 ) ,k_body_hwi )
+            f_index_hw_y = np.zeros(1)
+            f_index_hw_x = f_hw
         elif pos_x[human_index] < 4 and pos_y[human_index] < 6 and pos_y[human_index] > 4 and np.sqrt(np.square(pos_x[human_index]-4) + np.square(pos_y[human_index]-4)) < 2:
             distance_hw_x = pos_x[human_index] - 4
             distance_hw_y = pos_y[human_index] - 4
@@ -114,7 +205,7 @@ def human_wall_force(pos_x, pos_y):
         f_hw_x[human_index] = f_index_hw_x
         f_hw_y[human_index] = f_index_hw_y    
 
-    return f_hw_x, f_hw_y   
+    return f_hw_x, f_hw_y  
 
 def human_robot_force(pos_x, pos_y, pos_rx, pos_ry):
     """Calculate the interaction force between human and robot.
@@ -198,8 +289,99 @@ def self_driven_force(pos_x, pos_y, vel_x, vel_y):
     
     return f_sd_x, f_sd_y    
 
+def self_driven_force_and_human_human_force(pos_x, pos_y, time_step, vel_x, vel_y):
+    """Calculate the interaction self-driven force and human human interaction force.
+
+    Note: make sure the shape of pos_x and pos_y is N x 1 not N.
+
+    Args:
+      pos_x: A vector(N x 1) which represents the postion of human in x axis.
+      pos_y: A vector(N x 1) which represents the postion of human in y axis.
+      vel_x: A vector(N x 1) which represents the velocity of human in x axis.
+      vel_y: A vector(N x 1) which represents the velocity of human in y axis.
+      
+    Return:
+      f_sd_x: An vector(N x 1) which represents the self-driven force in x axis. 
+      f_sd_y: An vector(N x 1) which represents the self-driven force in y axis.
+      f_hhi_x: An array(N x N) which represents the human-human interaction force in x axis. 
+               For example, the element in the ith colum and jth row represents force pointing from human j to human i.
+      f_hhi_y: An array(N x N) which represents the human-human interaction force in y axis. 
+
+    """     
+    num_humans = np.shape(pos_x)[0]
+    f_sd_x = np.zeros( (num_humans, 1) )
+    f_sd_y = np.zeros( (num_humans, 1) )
+    distance_dest_norm_x = np.zeros( (num_humans, 1) )
+    distance_dest_norm_y = np.zeros( (num_humans, 1) )
+    
+    
+    for human_index in range(num_humans):
+        distance_dest_x6 = 6 - pos_x[human_index]
+        distance_dest_y6 = 6 - pos_y[human_index]
+        distance_dest_66 = np.sqrt(np.square( distance_dest_x6 ) + np.square( distance_dest_y6 )) #distance to destination (6, 6)
+        if pos_x[human_index] <= 4 and pos_y[human_index] <= 4:  #destination (4, 8)
+            distance_dest_x = 4 - pos_x[human_index]
+            distance_dest_y = 8 - pos_y[human_index]
+            distance_dest = np.sqrt(np.square( distance_dest_x ) + np.square( distance_dest_y ))
+        elif pos_x[human_index] < 6 and pos_y[human_index] > 4 and distance_dest_66 > 2: #destination (6, 6)
+            distance_dest_x = 6 - pos_x[human_index]
+            distance_dest_y = 6 - pos_y[human_index]
+            distance_dest = np.sqrt(np.square( distance_dest_x ) + np.square( distance_dest_y ))
+        else: #destination (50, 6)
+            distance_dest_x = 50 - pos_x[human_index]
+            distance_dest_y = 6 - pos_y[human_index]
+            distance_dest = np.sqrt(np.square( distance_dest_x ) + np.square( distance_dest_y ))
+        
+        distance_dest_norm_x[human_index] = np.divide( distance_dest_x, distance_dest ) 
+        distance_dest_norm_y[human_index] = np.divide( distance_dest_y, distance_dest )
+        f_sd_x[human_index] = np.divide( np.multiply( desired_speed[human_index], distance_dest_norm_x[human_index] ) - vel_x[human_index], accel_time ) 
+        f_sd_y[human_index] = np.divide( np.multiply( desired_speed[human_index], distance_dest_norm_y[human_index] ) - vel_y[human_index], accel_time ) 
+
+###Calculate the interaction force between human and human##        
+    pos_x_tile_col = np.tile(pos_x, (1, np.shape(pos_x)[0]))
+    pos_x_tile_row = np.transpose(pos_x_tile_col)
+    pos_y_tile_col = np.tile(pos_y, (1, np.shape(pos_y)[0]))
+    pos_y_tile_row = np.transpose(pos_y_tile_col)
+    distance_x = pos_x_tile_row - pos_x_tile_col  #x_i - x_j
+    distance_y = pos_y_tile_row - pos_y_tile_col
+    
+    distance = np.sqrt(np.square(distance_x) + np.square(distance_y))
+    distance_add_idetity = distance + np.identity(np.shape(distance)[0]) #add identity to avoid divide by 0
+    distance_x_norm = np.divide(distance_x, distance_add_idetity)
+    distance_y_norm = np.divide(distance_y, distance_add_idetity)  
+
+    vel_x_tile_col = np.tile( vel_x, (1, np.shape(vel_x)[0]) )
+    vel_x_tile_row = np.transpose( vel_x_tile_col )
+    vel_y_tile_col = np.tile( vel_y, (1, np.shape(vel_y)[0]) )
+    vel_y_tile_row = np.transpose( vel_y_tile_col )
+    vel_dif_x = vel_x_tile_col - vel_x_tile_row  #v_j - v_i
+    vel_dif_y = vel_y_tile_col - vel_y_tile_row
+    
+
+    distance_y_norm_square = np.square( distance_y_norm )
+    distance_x_norm_square = np.square( distance_x_norm )
+    distance_x_norm_mul_y_norm = np.multiply( distance_x_norm, distance_y_norm )
+    f_slid_friction_vel_x = np.multiply( vel_dif_x, np.multiply( np.maximum( (radius_hh - distance), np.zeros( np.shape(distance) ) ), k_fric_hhi ) )
+    f_slid_friction_vel_y = np.multiply( vel_dif_y, np.multiply( np.maximum( (radius_hh - distance), np.zeros( np.shape(distance) ) ), k_fric_hhi ) )
+    f_slid_friction_x = np.multiply(distance_y_norm_square, f_slid_friction_vel_x) - np.multiply(distance_x_norm_mul_y_norm, f_slid_friction_vel_y)
+    f_slid_friction_y = -np.multiply(distance_x_norm_mul_y_norm, f_slid_friction_vel_x) + np.multiply(distance_x_norm_square, f_slid_friction_vel_y)
 
 
+    distance_not_less_than_rh = np.maximum( distance_add_idetity, 0.2*np.ones( np.shape(distance) ) )
+    f_hhi = np.multiply( np.exp( np.divide(-distance, D_0)+1*np.square( np.divide( D_1, distance_not_less_than_rh ) ) ) , A_hhi )
+    
+    cos_theta = -np.multiply(distance_x_norm, distance_dest_norm_x) - np.multiply(distance_y_norm, distance_dest_norm_y)
+    anisotropic = const_lambda + np.multiply(1+cos_theta, (1-const_lambda)*0.5)
+    
+    f_hhi_x = f_slid_friction_x + np.multiply( np.multiply( f_hhi, distance_x_norm ), anisotropic )
+    f_hhi_y = f_slid_friction_y + np.multiply( np.multiply( f_hhi, distance_y_norm ), anisotropic )  
+       
+        
+        
+    return f_sd_x, f_sd_y, f_hhi_x, f_hhi_y
+        
+ 
+    
 #f_hhi_matrix_x, f_hhi_matrix_y = human_human_force(pos_x, pos_y)    
 #f_hhi_x = np.expand_dims( np.sum(f_hhi_matrix_x, axis=0), 1)
 #f_hhi_y = np.expand_dims( np.sum(f_hhi_matrix_y, axis=0), 1)
@@ -248,7 +430,8 @@ def self_driven_force(pos_x, pos_y, vel_x, vel_y):
     
 #pos_x = np.array([[1], [2], [3], [4]])  
 #pos_y = np.array([[3], [5], [6], [7]]) 
-  
+#vel_x = np.array([[1], [2], [3], [4]])  
+#vel_y = np.array([[3], [5], [6], [7]])   
 
 
 

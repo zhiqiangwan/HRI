@@ -7,9 +7,13 @@ class Pedestrian():
         self.c = c
         
     def step(self, ax=0, ay=0):
-        dt = 0.1
-        self.vx += ax * dt
-        self.vy += ay * dt
+        dt = 0.01
         
-        self.x += self.vx * dt
-        self.y += self.vy * dt
+        self.x = self.x + ( self.vx + 0.5*ax*dt ) * dt
+        self.y = self.y + ( self.vy + 0.5*ay*dt ) * dt
+        
+        self.vx = self.vx + ax * dt
+        self.vy = self.vy + ay * dt
+        
+#        self.x = self.x + self.vx * dt
+#        self.y = self.y + self.vy * dt

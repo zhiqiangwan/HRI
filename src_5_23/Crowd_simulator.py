@@ -2,6 +2,7 @@
 import time
 import math
 import os
+import pickle
 
 #related third party imports
 import numpy as np
@@ -57,22 +58,23 @@ radius_hh = 0.4 #radius of two humans
 D_0 = 0.31
 D_1 = 0.45
 kay = 2.0
-kappa = 1200#2000
+kappa = 1000
 const_lambda = 0.25
 A1aa = 2.6
-A_rb = 1.0#1.50
+A_rb = 1.0
 #parameters of human-wall interaction force
 A_hwi = 15.0
 B_hwi = 0.1
 radius_h = 0.5 * radius_hh #radius of one human
-k_body_hwi = 2000#20
+k_body_hwi = 1000 #20
 #parameters of human-robot interaction force
-A_hri = 10.0
-B_hri = 0.6#1.0
+A_hri = 5.0
+B_hri = 0.5
 radius_r = 0.5 #radius of robot
 radius_hr = radius_h + radius_r
 #parameters of self-driven force
 accel_time = 0.5
+np.random.seed(123)
 desired_speed = 2 + 0.1 * np.random.randn(num_pedestrains, 1)
 #lower_vel = 1.0
 #upper_vel = 4.0
@@ -80,13 +82,12 @@ desired_speed = 2 + 0.1 * np.random.randn(num_pedestrains, 1)
 #sigma_vel = 0.3
 #desired_speed = stats.truncnorm.rvs((lower_vel - mu_vel) / sigma_vel, (upper_vel - mu_vel) / sigma_vel, loc=mu_vel, scale=sigma_vel, size=(num_pedestrains, 1) )
 desired_speed = desired_speed.astype(np.float32)
-step_len = 0.005
+step_len = 0.01#0.005
 #robot action {action_key : robot velocity}
-action_dic = {'0': 0.0, 
-              '1': 0.2, 
-              '2': 0.4, 
-              '3': 0.6, 
-              '4': 0.8 }
+action_dic = {'0': 'UP', 
+              '1': 'DOWN', 
+              '2': 'LEFT', 
+              '3': 'RIGHT' }
 radius_robot_in_env = 0.2
 
 
@@ -107,13 +108,13 @@ anneling_steps = 10000. #How many steps of training to reduce startE to endE.
 num_episodes = 5000 #How many episodes of game environment to train network with.
 
 pre_train_steps = 10000 # 10000 #How many steps of random actions before training begins.
-max_epLength = 200#1000 #The max allowed length of our episode.
-load_model = False #Whether to load a saved model.
+max_epLength = 400#1000 #The max allowed length of our episode.
+load_model = True#False # Whether to load a saved model.
 tau = 0.001 #Rate to update target network toward primary network
 ob_len = 200 #size of the image of the environment
 action_size = len(action_dic)
 num_sim_steps = 30000
-num_moves_per_observ = 100#50
+
 
 # Check point
 model_path = '../models/'
@@ -142,7 +143,9 @@ targetOps = updateTargetGraph(trainables, tau)
 copyOps = updateTargetGraph(trainables, 1.0)
 myBuffer = experience_buffer()
 
-sess = tf.InteractiveSession()
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+sess = tf.InteractiveSession(config=config)
 #Set the rate of random action decrease. 
 e = startE
 stepDrop = (startE - endE)/anneling_steps
@@ -153,13 +156,17 @@ ped_outcount_list = []
 total_steps = 0
 ShowInterval = 10
 
+#if load_model == True:
+#    print 'Loading Model...'
+#    #ckpt = tf.train.get_checkpoint_state(model_path)
+#    saver.restore(sess,"../models/DDQNmodel700000.cptk")
+
 if load_model == True:
     print 'Loading Model...'
     ckpt = tf.train.get_checkpoint_state(model_path)
     saver.restore(sess,ckpt.model_checkpoint_path)
-
-tf.global_variables_initializer().run()
-
+else:
+    tf.global_variables_initializer().run()
 
 
 import pycuda.driver as cuda
@@ -207,13 +214,15 @@ out_flow_cal = 0.0
 
 
 def init_flowAB():
-    global indx, phi, cout1, cnt_flow, out_flow_cal
+    global indx, phi, cout1, cnt_flow, out_flow_cal, pos_rx, pos_ry
     #init parameter
     phi = 0.0 #robot
     cout1 = np.zeros((int(flow_win_size),1))
     cnt_flow = 0  
     out_flow_cal = 0.0
     indx = 0
+    pos_rx = 0.5
+    pos_ry = 2.5
     
     #init the position of flowA    
     flowA_x_index = 0
@@ -262,8 +271,8 @@ func1 = SourceModule("""
         float spd;
         if (ped_x[threadId]>xsize){
                if(abs(ped_c[threadId]-2)<0.1){//blue flow
-                  ped_x[threadId] = abs(rndnum[threadId*2]) * 3 +0.5;
-                  ped_y[threadId] = (-1*rndnum[threadId*2+1] * ped_buffersize) - 3;
+                  ped_x[threadId] = abs(rndnum[threadId*2]) * 3 +0.5; //0.5~3.5
+                  ped_y[threadId] = (-1*rndnum[threadId*2+1] * ped_buffersize) - 3; //-3-buf~-3
                   ped_x_up[threadId] = abs(rndnum[threadId*2]) * 3 +0.5;
                   ped_y_up[threadId] = (-1*rndnum[threadId*2+1] * ped_buffersize) - 3;
                   ped_vx[threadId] = 0.0;
@@ -273,8 +282,8 @@ func1 = SourceModule("""
                  
                }
                if(abs(ped_c[threadId]-1)<0.1){//red flow
-                  ped_x[threadId] = (-1*rndnum[threadId*2] * ped_buffersize) - 3;
-                  ped_y[threadId] = rndnum[threadId*2+1] * 3 + 4.5;
+                  ped_x[threadId] = (-1*rndnum[threadId*2] * ped_buffersize) - 3; // -3-buf~-3
+                  ped_y[threadId] = rndnum[threadId*2+1] * 3 + 4.5; //4.5~7.5
                   ped_x_up[threadId] = (-1*rndnum[threadId*2] * ped_buffersize) - 3;
                   ped_y_up[threadId] = rndnum[threadId*2+1] * 3 + 4.5;
                   ped_vx[threadId] = 2.0;
@@ -475,8 +484,8 @@ def move_crowd(robot_flag,render_flag,omega,numthstep, gener_flag):
     c1 = float(np.sum(ped_cnt_flag1))
     cout1=np.append(cout1,c1)
     #pos_rx = A_rb*math.sin(phi*step_len) + init_pos_rx #A_rb*math.acos(phi*step_len) + pos_rx
-    pos_rx = -A_rb*math.cos(phi*step_len) + init_pos_rx
-    phi += omega
+#    pos_rx = -A_rb*math.cos(phi*step_len) + init_pos_rx
+#    phi += omega
     if ((numthstep>=sampl) and (divmod(numthstep,sampl)[1]==0)):
         out_flow_cal = np.sum(cout1[cnt_flow*sampl:(cnt_flow+1)*sampl])
         cnt_flow = cnt_flow+1
@@ -531,6 +540,7 @@ def render_scene(robot_flag=False,shd_show=True):
     img = img/255.0    
     return img
 
+robot_step_len = 0.2
 for episode in range(num_episodes):
     episodeBuffer = experience_buffer()
     # reset environment and get first observation
@@ -551,13 +561,37 @@ for episode in range(num_episodes):
     while simstep < num_sim_steps:
         simstep += 1
         total_steps += 1
-
-        if np.random.rand(1) < e or total_steps < pre_train_steps:
-            a = np.random.randint(0, 5)
+        
+        if load_model == False:
+            if np.random.rand(1) < e or total_steps < pre_train_steps:
+                a = np.random.randint(0, len(action_dic))
+            else:
+                a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
         else:
             a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+            
+        omega_rx = 0.0
 
-        omega_rx = action_dic[str(a)]
+        move_direction = action_dic[str(a)]
+        if move_direction == 'UP':
+            pos_ry = pos_ry + robot_step_len
+        elif move_direction == 'DOWN':
+            pos_ry = pos_ry - robot_step_len
+        elif move_direction == 'LEFT':
+            pos_rx = pos_rx - robot_step_len
+        elif move_direction == 'RIGHT':
+            pos_rx = pos_rx + robot_step_len
+        else: raise ValueError('unacceptable moving direction') 
+        
+        if pos_rx > 3.5:
+            pos_rx = 3.5
+        elif pos_rx < 0.5:
+            pos_rx = 0.5
+            
+        if pos_ry > 7.5:
+            pos_ry = 7.5
+        elif pos_ry < 0.5:
+            pos_ry = 0.5
         
         for i in range(sampl):
             move_crowd(1.0,False,omega_rx,env_step, False)
@@ -569,7 +603,7 @@ for episode in range(num_episodes):
                             
         # save model
         if total_steps % 100000 == 0:
-            #saver.save(sess, os.path.join( model_path, 'DDQNmodel' + str(total_steps) + '.cptk') )
+            saver.save(sess, os.path.join( model_path, 'DDQNmodel' + str(total_steps) + '.cptk') )
             print('Model Saved at total step:', total_steps)
         
         # save to experience buffer
@@ -608,48 +642,312 @@ for episode in range(num_episodes):
     #jList.append(simstep)
     rList.append(rAll)
 
-#import pickle
+
 #with open('../models/workspace.pkl', 'w') as f:
 #    pickle.dump(rList, f)
 
+
+#with open('../models/workspace.pkl', 'r') as f:
+#   rList = pickle.load(f)
+   
 # END of all episode
 
 #plt.plot(rList)
+#plt.ylabel('Accumulated outflow')
+#plt.xlabel('Epoch') 
 
 PLOT_RESULT = False
 
 if PLOT_RESULT == True:
-    numstep = sampl*200
+    simulation_time = 400
+    numstep = sampl*simulation_time
     
     print ("Without robot:")
     instane_flow_no_robot = []
-    accum_flow_no_robot = []        
+    accum_flow_no_robot = []    
+    init_flowAB()    
     for step in range(numstep+1):
-        i1,out_fl=move_crowd(robot_flag = -1.0, render_flag = True, omega=0, numthstep=step, gener_flag=True) #robot_flag < 0 , no robot
-        instane_flow_no_robot.append(out_fl)
-
-    for i in range(0,int(numstep/sampl)):
-        accum_flow_no_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+        move_crowd(robot_flag = -1.0, render_flag = False, omega=0, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot        
+        accum_flow_no_robot.append(np.sum(cout1))
+    print ("end of Without robot:")
+    
+    for i in range(0,simulation_time):
+        instane_flow_no_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
 
     plt.plot(instane_flow_no_robot)
-    plt.plot(accum_flow_no_robot)
+    plt.show()
+    print(accum_flow_no_robot[-1])
+#    plt.plot(accum_flow_no_robot)
+#    plt.show()
+
+
+
+    print ("Robot is stil:")
+    instane_flow_stil_robot = []
+    accum_flow_stil_robot = []      
+    init_flowAB() 
+    pos_rx = 2.0
+    pos_ry = 5.0
+    for step in range(numstep+1):
+        if step % sampl ==0:
+            _, _, = move_crowd(robot_flag = 1.0, render_flag = True, omega=0, numthstep=step, gener_flag=True)
+        else:            
+            move_crowd(robot_flag = 1.0, render_flag = False, omega=0, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot
+        accum_flow_stil_robot.append(np.sum(cout1))
+    print ("end of Robot is stil:")
+    
+    
+    for i in range(0,simulation_time):
+        instane_flow_stil_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+        
+    plt.plot(instane_flow_stil_robot)
+    plt.show()
+    print(accum_flow_stil_robot[-1])
+#    plt.plot(accum_flow_stil_robot)
+#    plt.show()
+
 
 
     print ("Robot takes random action:")
     instane_flow_rand_robot = []
-    accum_flow_rand_robot = []        
+    accum_flow_rand_robot = []      
+    init_flowAB() 
     for step in range(numstep+1):
-        i1,out_fl=move_crowd(robot_flag = 1.0, render_flag = True, omega=0, numthstep=step, gener_flag=True) #robot_flag < 0 , no robot
-        instane_flow_rand_robot.append(out_fl)
+        if step % sampl ==0:
+            a = np.random.randint(0, len(action_dic))
 
-    for i in range(0,int(numstep/sampl)):
-        accum_flow_rand_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+            omega_rx = 0.0
+    
+            move_direction = action_dic[str(a)]
+            if move_direction == 'UP':
+                pos_ry = pos_ry + robot_step_len
+            elif move_direction == 'DOWN':
+                pos_ry = pos_ry - robot_step_len
+            elif move_direction == 'LEFT':
+                pos_rx = pos_rx - robot_step_len
+            elif move_direction == 'RIGHT':
+                pos_rx = pos_rx + robot_step_len
+            else: raise ValueError('unacceptable moving direction') 
+            
+            if pos_rx > 3.5:
+                pos_rx = 3.5
+            elif pos_rx < 0.5:
+                pos_rx = 0.5
+                
+            if pos_ry > 7.5:
+                pos_ry = 7.5
+            elif pos_ry < 0.5:
+                pos_ry = 0.5
+
+           
+        move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot
+        accum_flow_rand_robot.append(np.sum(cout1))
+
+    print ("end of Robot takes random action:")
+
+    for i in range(0,simulation_time):
+        instane_flow_rand_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
         
     plt.plot(instane_flow_rand_robot)
-    plt.plot(accum_flow_rand_robot)
+    plt.show()
+    print(accum_flow_rand_robot[-1])
+#    plt.plot(accum_flow_rand_robot)
+#    plt.show()
 
-cv2.destroyAllWindows()
 
+
+    print ("Robot with DQN:")
+    instane_flow_DQN_robot = []
+    accum_flow_DQN_robot = []      
+    init_flowAB()
+    omega_rx = 0.0
+    
+    for step in range(numstep+1):
+        if step == 0:
+            s,_=move_crowd(robot_flag = 1.0, render_flag = True, omega=omega_rx, numthstep=step, gener_flag=True)
+            a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+            omega_rx = 0.0
+    
+            move_direction = action_dic[str(a)]
+            if move_direction == 'UP':
+                pos_ry = pos_ry + robot_step_len
+            elif move_direction == 'DOWN':
+                pos_ry = pos_ry - robot_step_len
+            elif move_direction == 'LEFT':
+                pos_rx = pos_rx - robot_step_len
+            elif move_direction == 'RIGHT':
+                pos_rx = pos_rx + robot_step_len
+            else: raise ValueError('unacceptable moving direction') 
+            
+            if pos_rx > 3.5:
+                pos_rx = 3.5
+            elif pos_rx < 0.5:
+                pos_rx = 0.5
+                
+            if pos_ry > 7.5:
+                pos_ry = 7.5
+            elif pos_ry < 0.5:
+                pos_ry = 0.5 
+                
+        if step % sampl == 0 and step != 0:
+            s,_=move_crowd(robot_flag = 1.0, render_flag = True, omega=omega_rx, numthstep=step, gener_flag=True)
+            a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+            
+            omega_rx = 0.0
+    
+            move_direction = action_dic[str(a)]
+            if move_direction == 'UP':
+                pos_ry = pos_ry + robot_step_len
+            elif move_direction == 'DOWN':
+                pos_ry = pos_ry - robot_step_len
+            elif move_direction == 'LEFT':
+                pos_rx = pos_rx - robot_step_len
+            elif move_direction == 'RIGHT':
+                pos_rx = pos_rx + robot_step_len
+            else: raise ValueError('unacceptable moving direction') 
+            
+            if pos_rx > 3.5:
+                pos_rx = 3.5
+            elif pos_rx < 0.5:
+                pos_rx = 0.5
+                
+            if pos_ry > 7.5:
+                pos_ry = 7.5
+            elif pos_ry < 0.5:
+                pos_ry = 0.5  
+                
+        if step % sampl != 0:           
+            move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot
+            
+        accum_flow_DQN_robot.append(np.sum(cout1))
+    print ("end of Robot with DQN:")
+
+    for i in range(0,simulation_time):
+        instane_flow_DQN_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+        
+    plt.plot(instane_flow_DQN_robot)
+    plt.show()
+    print(accum_flow_DQN_robot[-1])
+
+
+#if PLOT_RESULT == True:
+#    numstep = sampl*400
+#    
+#    print ("Without robot:")
+#    instane_flow_no_robot = []
+#    accum_flow_no_robot = []    
+#    init_flowAB()    
+#    for step in range(numstep+1):
+#        i1,out_fl=move_crowd(robot_flag = -1.0, render_flag = False, omega=0, numthstep=step, gener_flag=True) #robot_flag < 0 , no robot
+#        instane_flow_no_robot.append(out_fl)
+#        accum_flow_no_robot.append(np.sum(cout1))
+#
+#    plt.plot(instane_flow_no_robot)
+#    plt.show()
+#    print(accum_flow_no_robot[-1])
+##    plt.plot(accum_flow_no_robot)
+##    plt.show()
+#
+#
+#    print ("Robot is stil:")
+#    instane_flow_stil_robot = []
+#    accum_flow_stil_robot = []      
+#    init_flowAB() 
+#    for step in range(numstep+1):
+#        i1,out_fl=move_crowd(robot_flag = 1.0, render_flag = False, omega=0, numthstep=step, gener_flag=True) #robot_flag < 0 , no robot
+#        instane_flow_stil_robot.append(out_fl)
+#        accum_flow_stil_robot.append(np.sum(cout1))
+#        
+#    plt.plot(instane_flow_stil_robot)
+#    plt.show()
+#    print(accum_flow_stil_robot[-1])
+##    plt.plot(accum_flow_stil_robot)
+##    plt.show()
+#
+#
+#    print ("Robot takes random action:")
+#    instane_flow_rand_robot = []
+#    accum_flow_rand_robot = []      
+#    init_flowAB() 
+#    for step in range(numstep+1):
+#        if step % sampl ==0:
+#            a = np.random.randint(0, len(action_dic))
+#
+#            omega_rx = 0.0
+#    
+#            move_direction = action_dic[str(a)]
+#            if move_direction == 'UP':
+#                pos_ry = pos_ry + robot_step_len
+#            elif move_direction == 'DOWN':
+#                pos_ry = pos_ry - robot_step_len
+#            elif move_direction == 'LEFT':
+#                pos_rx = pos_rx - robot_step_len
+#            elif move_direction == 'RIGHT':
+#                pos_rx = pos_rx + robot_step_len
+#            else: raise ValueError('unacceptable moving direction') 
+#            
+#            if pos_rx > 3.5:
+#                pos_rx = 3.5
+#            elif pos_rx < 0.5:
+#                pos_rx = 0.5
+#                
+#            if pos_ry > 7.5:
+#                pos_ry = 7.5
+#            elif pos_ry < 0.5:
+#                pos_ry = 0.5
+#
+#   
+#        i1,out_fl=move_crowd(robot_flag = 1.0, render_flag = True, omega=omega_rx, numthstep=step, gener_flag=True) #robot_flag < 0 , no robot
+#        instane_flow_rand_robot.append(out_fl)
+#        accum_flow_rand_robot.append(np.sum(cout1))
+#        
+#    plt.plot(instane_flow_rand_robot)
+#    plt.show()
+#    print(accum_flow_rand_robot[-1])
+##    plt.plot(accum_flow_rand_robot)
+##    plt.show()
+#
+#    print ("Robot with DQN:")
+#    instane_flow_DQN_robot = []
+#    accum_flow_DQN_robot = []      
+#    init_flowAB()
+#    
+#    for step in range(numstep+1):
+#        if step == 0:
+#            a = 0
+#        if step % sampl == 0 and step != 0:
+#            a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+#            
+#            omega_rx = 0.0
+#    
+#            move_direction = action_dic[str(a)]
+#            if move_direction == 'UP':
+#                pos_ry = pos_ry + robot_step_len
+#            elif move_direction == 'DOWN':
+#                pos_ry = pos_ry - robot_step_len
+#            elif move_direction == 'LEFT':
+#                pos_rx = pos_rx - robot_step_len
+#            elif move_direction == 'RIGHT':
+#                pos_rx = pos_rx + robot_step_len
+#            else: raise ValueError('unacceptable moving direction') 
+#            
+#            if pos_rx > 3.5:
+#                pos_rx = 3.5
+#            elif pos_rx < 0.5:
+#                pos_rx = 0.5
+#                
+#            if pos_ry > 7.5:
+#                pos_ry = 7.5
+#            elif pos_ry < 0.5:
+#                pos_ry = 0.5            
+#                   
+#        s,out_fl=move_crowd(robot_flag = 1.0, render_flag = True, omega=omega_rx, numthstep=step, gener_flag=True) #robot_flag < 0 , no robot
+#        instane_flow_DQN_robot.append(out_fl)
+#        accum_flow_DQN_robot.append(np.sum(cout1))
+#        
+#    plt.plot(instane_flow_DQN_robot)
+#    plt.show()
+#    print(accum_flow_DQN_robot[-1])
 
 
 

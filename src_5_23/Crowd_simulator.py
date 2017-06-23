@@ -33,8 +33,8 @@ flow_win_size = 4
 
 
 
-num_flowA = 150#120#180
-num_flowB = 150#180#120
+num_flowA = 180#150#120#
+num_flowB = 120#150#180#
 
 flowA_init_wide = 3.6
 flowA_x_start = 0
@@ -109,7 +109,7 @@ num_episodes = 5000 #How many episodes of game environment to train network with
 
 pre_train_steps = 10000 # 10000 #How many steps of random actions before training begins.
 max_epLength = 400#1000 #The max allowed length of our episode.
-load_model = False #True#  Whether to load a saved model.
+load_model = True#False #  Whether to load a saved model.
 tau = 0.001 #Rate to update target network toward primary network
 ob_len = 200 #size of the image of the environment
 action_size = len(action_dic)
@@ -117,30 +117,35 @@ num_sim_steps = 30000
 
 
 # Check point
-model_path = '../models/'
+if load_model:
+    model_path = '../models/6-17_flowA_B_150_150/'#'../models/6-16_flowA_B_120_180/'#'../models/6-13_flowA_B_180_120/'#
+else:
+    model_path = '../models/'
 
 # DQN
-# some useful functions
-def updateTargetGraph(tfVars,tau):
-    total_vars = len(tfVars)
-    op_holder = []
-    for idx,var in enumerate(tfVars[0:total_vars/2]):
-        op_holder.append(tfVars[idx+total_vars/2].assign((var.value()*tau) + ((1-tau)*tfVars[idx+total_vars/2].value())))
-    return op_holder
-
-def updateTarget(op_holder,sess):
-    for op in op_holder:
-        sess.run(op)
-        
-
-tf.reset_default_graph()
-
-mainQN = DeepQNetwork(ob_len, action_size)
-targetQN = DeepQNetwork(ob_len, action_size)
-saver = tf.train.Saver()
-trainables = tf.trainable_variables()
-targetOps = updateTargetGraph(trainables, tau)
-copyOps = updateTargetGraph(trainables, 1.0)
+with tf.device('/gpu:1'):
+    # some useful functions
+    def updateTargetGraph(tfVars,tau):
+        total_vars = len(tfVars)
+        op_holder = []
+        for idx,var in enumerate(tfVars[0:total_vars/2]):
+            op_holder.append(tfVars[idx+total_vars/2].assign((var.value()*tau) + ((1-tau)*tfVars[idx+total_vars/2].value())))
+        return op_holder
+    
+    def updateTarget(op_holder,sess):
+        for op in op_holder:
+            sess.run(op)
+            
+    
+    tf.reset_default_graph()
+    
+    mainQN = DeepQNetwork(ob_len, action_size)
+    targetQN = DeepQNetwork(ob_len, action_size)
+    saver = tf.train.Saver()
+    trainables = tf.trainable_variables()
+    targetOps = updateTargetGraph(trainables, tau)
+    copyOps = updateTargetGraph(trainables, 1.0)
+    
 myBuffer = experience_buffer()
 
 config = tf.ConfigProto(log_device_placement=True)
@@ -647,9 +652,15 @@ for episode in range(num_episodes):
 #    pickle.dump(rList, f)
 #(6323-5973)/5973.0
 
-#with open('../models/workspace.pkl', 'r') as f:
-#   rList = pickle.load(f)
-   
+with open(os.path.join(model_path, 'workspace.pkl'), 'r') as f:
+   rList = pickle.load(f)
+
+window_size = 5
+average_rList = np.convolve(rList, np.ones((window_size,))/window_size, mode='valid')   
+plt.plot(average_rList)
+plt.ylabel('Accumulated rewards')
+plt.xlabel('Epoch') 
+
 # END of all episode
 
 #plt.plot(rList)
@@ -695,8 +706,8 @@ if PLOT_RESULT == True:
         instane_flow_stil_robot = []
         accum_flow_stil_robot = []      
         init_flowAB() 
-        pos_rx = 2.0
-        pos_ry = 5.0
+        pos_rx = 2.5
+        pos_ry = 4.5
         for step in range(numstep+1):
             if step % sampl ==0:
                 _, _, = move_crowd(robot_flag = 1.0, render_flag = False, omega=0, numthstep=step, gener_flag=True)
@@ -845,12 +856,25 @@ if PLOT_RESULT == True:
     plt.show()
     print(accum_flow_DQN_robot[-1])
     sum(accum_flow_DQN_robot_multip_runs)/float(len(accum_flow_DQN_robot_multip_runs))
-
-    plt.plot(instane_flow_rand_robot, 'b-', instane_flow_DQN_robot, 'r-')
+    
+    window_size = 5
+    average_instane_flow_no_robot = np.convolve(instane_flow_no_robot, np.ones((window_size,))/window_size, mode='valid')
+    average_instane_flow_rand_robot = np.convolve(instane_flow_rand_robot, np.ones((window_size,))/window_size, mode='valid')
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')
+    plt.plot(average_instane_flow_no_robot, 'k-', average_instane_flow_rand_robot, 'b-', average_instane_flow_DQN_robot, 'r-')
+    
+    plt.plot(instane_flow_no_robot, 'k-', instane_flow_rand_robot, 'b-', instane_flow_DQN_robot, 'r-')
+    plt.plot(accum_flow_no_robot[::sampl], 'k-', accum_flow_rand_robot[::sampl], 'b-', accum_flow_DQN_robot[::sampl], 'r-')
 
     with open('../models/average_accumulated_flow.pkl', 'w') as f:
         pickle.dump([accum_flow_no_robot_multip_runs, accum_flow_rand_robot_multip_runs, accum_flow_DQN_robot_multip_runs], f)
-   
+
+
+#time_start = time.time()
+#a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+#elapsed_time = time.time() - time_start
+#print elapsed_time
+
 #if PLOT_RESULT == True:
 #    numstep = sampl*400
 #    

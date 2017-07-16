@@ -33,8 +33,8 @@ flow_win_size = 4
 
 
 
-num_flowA = 180#150#120#
-num_flowB = 120#150#180#
+num_flowA = 180#120#150#
+num_flowB = 120#180#150#
 
 flowA_init_wide = 3.6
 flowA_x_start = 0
@@ -103,27 +103,32 @@ vel_ry = 0
 init_pos_rx = 2.0#1.50
 phi = 0.0
 
+rx_min = 0.0
+rx_max = 3.8
+ry_min = 0.0
+ry_max = 3.8
+
 # train parameters
 batch_size = 32 #How many experiences to use for each training step.
 update_freq = 4 #How often to perform a training step.
 y = .99 #Discount factor on the target Q-values
 startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
-anneling_steps = 10000. #How many steps of training to reduce startE to endE.
+anneling_steps = 100000. #How many steps of training to reduce startE to endE.
 num_episodes = 5000 #How many episodes of game environment to train network with.
 
-pre_train_steps = 10000 # 10000 #How many steps of random actions before training begins.
+pre_train_steps = 100000 # 10000 #How many steps of random actions before training begins.
 max_epLength = 400#1000 #The max allowed length of our episode.
-load_model = False # True# Whether to load a saved model.
+load_model = True#False #  Whether to load a saved model.
 tau = 0.001 #Rate to update target network toward primary network
 ob_len = 200 #size of the image of the environment
 action_size = len(action_dic)
 num_sim_steps = 30000
 
-
+#'../models/7_10_flowA_B_180_120_random_robot_position_rang_0_3_8'-----'DDQNmodel800000.cptk'
 # Check point
 if load_model:
-    model_path = '../models/6-13_flowA_B_180_120/'#'../models/6-17_flowA_B_150_150/'#'../models/6-16_flowA_B_120_180/'#
+    model_path = '../models/7_10_flowA_B_180_120_random_robot_position_rang_0_3_8'#'../models/7_7_flowA_B_180_120_random_robot_position'#'../models/6-26_flowA_B_180_120_random_robot_position'#'
 else:
     model_path = '../models/'
 
@@ -166,17 +171,18 @@ ped_outcount_list = []
 total_steps = 0
 ShowInterval = 10
 
-#if load_model == True:
-#    print 'Loading Model...'
-#    #ckpt = tf.train.get_checkpoint_state(model_path)
-#    saver.restore(sess,"../models/DDQNmodel700000.cptk")
-
 if load_model == True:
     print 'Loading Model...'
-    ckpt = tf.train.get_checkpoint_state(model_path)
-    saver.restore(sess,ckpt.model_checkpoint_path)
-else:
-    tf.global_variables_initializer().run()
+    #ckpt = tf.train.get_checkpoint_state(model_path)
+    saver.restore(sess,os.path.join(model_path, 'DDQNmodel800000.cptk'))
+
+#if load_model == True:
+#    print 'Loading Model...'
+#    ckpt = tf.train.get_checkpoint_state(model_path)
+#    saver.restore(sess,ckpt.model_checkpoint_path)
+#else:
+#    print 'initialize Model parameters...'
+#    tf.global_variables_initializer().run()
 
 os.environ["CUDA_DEVICE"] = "0"
 import pycuda.driver as cuda
@@ -231,8 +237,13 @@ def init_flowAB():
     cnt_flow = 0  
     out_flow_cal = 0.0
     indx = 0
-    pos_rx = 0.5
-    pos_ry = 2.5
+    
+    #random initialize robot position , uniform (0.5~3.5)
+    pos_rx = np.random.uniform(rx_min, rx_max)
+    pos_ry = np.random.uniform(ry_min, ry_max)
+#    pos_rx = 0.5
+#    pos_ry = 2.5
+
     
     #init the position of flowA    
     flowA_x_index = 0
@@ -550,6 +561,11 @@ def render_scene(robot_flag=False,shd_show=True):
     img = img/255.0    
     return img
 
+PLOT_RESULT = False
+simulation_time = 400
+numstep = sampl*simulation_time
+num_experiments = 10
+
 robot_step_len = 0.2
 for episode in range(num_episodes):
     episodeBuffer = experience_buffer()
@@ -593,17 +609,17 @@ for episode in range(num_episodes):
             pos_rx = pos_rx + robot_step_len
         elif move_direction == 'STOP':
             pass
-        else: raise ValueError('unacceptable moving direction') 
+        else: raise ValueError('unacceptable moving direction')     
         
-        if pos_rx > 3.5:
-            pos_rx = 3.5
-        elif pos_rx < 0.5:
-            pos_rx = 0.5
+        if pos_rx > rx_max:
+            pos_rx = rx_max
+        elif pos_rx < rx_min:
+            pos_rx = rx_min
             
         if pos_ry > 7.5:
             pos_ry = 7.5
-        elif pos_ry < 0.5:
-            pos_ry = 0.5
+        elif pos_ry < ry_min:
+            pos_ry = ry_min
         
         for i in range(sampl):
             move_crowd(1.0,False,omega_rx,env_step, False)
@@ -668,16 +684,33 @@ plt.plot(average_rList)
 plt.ylabel('Accumulated rewards')
 plt.xlabel('Epoch') 
 
+with open(os.path.join(model_path, 'average_accumulated_flow.pkl'), 'r') as f:
+    average_accumulated_flow = pickle.load(f)
+#accum_flow_no_robot_multip_runs, accum_flow_rand_robot_multip_runs, accum_flow_DQN_robot_multip_runs 
+
+
+fig = plt.figure(1, figsize=(6, 4))
+ax = fig.add_subplot(111)
+bp = ax.boxplot(average_accumulated_flow)
+ax.set_xticklabels(['No robot', 'Random', 'DQN'])
+
+with open(os.path.join(model_path, 'converge_result.pkl'), 'r') as f:
+    converge_result = pickle.load(f)
+
+for i in range(7):    
+    fig = plt.figure(1, figsize=(6, 4))
+    ax = fig.add_subplot(111)
+    bp = ax.boxplot(converge_result[0][0+i*7:7+i*7])
+    plt.show()
+#[average_accum_outflow_list, pos_rx_stable_list, pos_ry_stable_list, converge_time_list]
+
 # END of all episode
 
 #plt.plot(rList)
 #plt.ylabel('Accumulated outflow')
 #plt.xlabel('Epoch') 
 
-PLOT_RESULT = False
-simulation_time = 400
-numstep = sampl*simulation_time
-num_experiments = 10
+
     
 if PLOT_RESULT == True:
     
@@ -690,7 +723,7 @@ if PLOT_RESULT == True:
         init_flowAB()    
         for step in range(numstep+1):
             if step % sampl ==0:
-                _, _, = move_crowd(robot_flag = -1.0, render_flag = True, omega=0, numthstep=step, gener_flag=True)
+                _, _, = move_crowd(robot_flag = -1.0, render_flag = False, omega=0, numthstep=step, gener_flag=True)
             else:            
                 move_crowd(robot_flag = -1.0, render_flag = False, omega=0, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot
             accum_flow_no_robot.append(np.sum(cout1))
@@ -713,16 +746,17 @@ if PLOT_RESULT == True:
         instane_flow_stil_robot = []
         accum_flow_stil_robot = []      
         init_flowAB() 
-        pos_rx = 1.6
-        pos_ry = 4.4
+        pos_rx = 2.0
+        pos_ry = 4.0
         for step in range(numstep+1):
             if step % sampl ==0:
-                _, _, = move_crowd(robot_flag = 1.0, render_flag = False, omega=0, numthstep=step, gener_flag=True)
+                _, _, = move_crowd(robot_flag = 1.0, render_flag = True, omega=0, numthstep=step, gener_flag=True)
             else:            
                 move_crowd(robot_flag = 1.0, render_flag = False, omega=0, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot
             accum_flow_stil_robot.append(np.sum(cout1))
         print ("end of Robot is stil:")
         accum_flow_stil_robot_multip_runs.append(accum_flow_stil_robot[-1])
+        print(accum_flow_stil_robot[-1])
         
         
         for i in range(0,simulation_time):
@@ -742,6 +776,8 @@ if PLOT_RESULT == True:
         instane_flow_rand_robot = []
         accum_flow_rand_robot = []      
         init_flowAB() 
+        pos_rx = 0.5
+        pos_ry = 0.5
         for step in range(numstep+1):
             if step % sampl ==0:
                 a = np.random.randint(0, len(action_dic))
@@ -760,16 +796,16 @@ if PLOT_RESULT == True:
                 elif move_direction == 'STOP':
                     pass                    
                 else: raise ValueError('unacceptable moving direction') 
-                
-                if pos_rx > 3.5:
-                    pos_rx = 3.5
-                elif pos_rx < 0.5:
-                    pos_rx = 0.5
+
+                if pos_rx > rx_max:
+                    pos_rx = rx_max
+                elif pos_rx < rx_min:
+                    pos_rx = rx_min
                     
                 if pos_ry > 7.5:
                     pos_ry = 7.5
-                elif pos_ry < 0.5:
-                    pos_ry = 0.5
+                elif pos_ry < ry_min:
+                    pos_ry = ry_min                
                     
                 _, _, = move_crowd(robot_flag = 1.0, render_flag = False, omega=0, numthstep=step, gener_flag=True)    
             else:   
@@ -790,7 +826,186 @@ if PLOT_RESULT == True:
 #    plt.show()
 
 #
+    init_pos_rx_list = [2.0] #[x*0.5 for x in range(1, 8)]
+    init_pos_ry_list = [2.0] #[x*0.5 for x in range(1, 8)]
+    pos_rx_stable_list = []
+    pos_ry_stable_list = []
+    converge_time_list = []
+    average_accum_outflow_list = []
+    for pos_rx_init in init_pos_rx_list:
+        for pos_ry_init in init_pos_ry_list:
+
+            accum_flow_DQN_robot_multip_runs = []
+            pos_rx_stable_multip_runs = []
+            pos_ry_stable_multip_runs = []
+            converge_time_multip_runs = []
+            for i in range(num_experiments):  
+                print ("Robot with DQN:")
+                instane_flow_DQN_robot = []
+                accum_flow_DQN_robot = []      
+                init_flowAB()
+                omega_rx = 0.0
+                
+                pos_rx = pos_rx_init
+                pos_ry = pos_ry_init
+                pos_rx_list = []
+                pos_ry_list = []
+                
+                start_time = time.time()
+                for step in range(numstep+1):
+                    if step == 0:
+                        s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                        a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                        omega_rx = 0.0
+                
+                        move_direction = action_dic[str(a)]
+                        if move_direction == 'UP':
+                            pos_ry = pos_ry + robot_step_len
+                        elif move_direction == 'DOWN':
+                            pos_ry = pos_ry - robot_step_len
+                        elif move_direction == 'LEFT':
+                            pos_rx = pos_rx - robot_step_len
+                        elif move_direction == 'RIGHT':
+                            pos_rx = pos_rx + robot_step_len
+                        elif move_direction == 'STOP':
+                            pass                      
+                        else: raise ValueError('unacceptable moving direction') 
+
+                        if pos_rx > rx_max:
+                            pos_rx = rx_max
+                        elif pos_rx < rx_min:
+                            pos_rx = rx_min
+                            
+                        if pos_ry > 7.5:
+                            pos_ry = 7.5
+                        elif pos_ry < ry_min:
+                            pos_ry = ry_min                        
+                            
+                        pos_rx_list.append(pos_rx)
+                        pos_ry_list.append(pos_ry)
+                            
+                    if step % sampl == 0 and step != 0:
+                        s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                        a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                        
+                        omega_rx = 0.0
+                
+                        move_direction = action_dic[str(a)]
+                        if move_direction == 'UP':
+                            pos_ry = pos_ry + robot_step_len
+                        elif move_direction == 'DOWN':
+                            pos_ry = pos_ry - robot_step_len
+                        elif move_direction == 'LEFT':
+                            pos_rx = pos_rx - robot_step_len
+                        elif move_direction == 'RIGHT':
+                            pos_rx = pos_rx + robot_step_len
+                        elif move_direction == 'STOP':
+                            pass                      
+                        else: raise ValueError('unacceptable moving direction') 
+
+                        if pos_rx > rx_max:
+                            pos_rx = rx_max
+                        elif pos_rx < rx_min:
+                            pos_rx = rx_min
+                            
+                        if pos_ry > 7.5:
+                            pos_ry = 7.5
+                        elif pos_ry < ry_min:
+                            pos_ry = ry_min
+        
+                        pos_rx_list.append(pos_rx)
+                        pos_ry_list.append(pos_ry)
+                            
+                    if step % sampl != 0:           
+                        move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot            
+                    
+                    accum_flow_DQN_robot.append(np.sum(cout1))
+                print ("end of Robot with DQN:")
+                elapsed_time = time.time() - start_time
+                #print(elapsed_time)
+                accum_flow_DQN_robot_multip_runs.append(accum_flow_DQN_robot[-1])
+                print "accum_flow_DQN_robot:"+ str(accum_flow_DQN_robot[-1])
+
+            
+#                for i in range(0,simulation_time):
+#                    instane_flow_DQN_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+
+                plt.plot(pos_rx_list)
+                plt.ylabel('Robot position on x axis')
+                plt.xlabel('Time(s)')     
+                plt.show()    
+                plt.plot(pos_ry_list)
+                plt.ylabel('Robot position on y axis')
+                plt.xlabel('Time(s)')  
+                plt.show() 
+                pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
+                pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
+                print "pos_rx_stable:"+ str(pos_rx_stable)
+                print "pos_ry_stable:"+ str(pos_ry_stable)
+                pos_rx_stable_multip_runs.append(pos_rx_stable)
+                pos_ry_stable_multip_runs.append(pos_ry_stable)
+                
+                if pos_rx_list[0] <= pos_rx_stable:
+                    for idx, value in enumerate(pos_rx_list):
+                        if value >= pos_rx_stable:
+                            print idx
+                            rx_idx = idx
+                            break        
+                else:
+                    for idx, value in enumerate(pos_rx_list):
+                        if value <= pos_rx_stable:
+                            print idx
+                            rx_idx = idx
+                            break        
+                    
+                if pos_ry_list[0] <= pos_ry_stable:
+                    for idx, value in enumerate(pos_ry_list):
+                        if value >= pos_ry_stable:
+                            print idx
+                            ry_idx = idx
+                            break        
+                else:
+                    for idx, value in enumerate(pos_ry_list):
+                        if value <= pos_ry_stable:
+                            print idx
+                            ry_idx = idx
+                            break        
+                converge_time = max(rx_idx, ry_idx)
+                print "converge_time:" + str(converge_time)  
+                converge_time_multip_runs.append(converge_time)
+               
+#            plt.plot(instane_flow_DQN_robot)
+#            plt.show()
+            
+            average_accum_outflow = sum(accum_flow_DQN_robot_multip_runs)/float(len(accum_flow_DQN_robot_multip_runs))
+            print "average_accum_outflow:" + str(average_accum_outflow)
+            average_accum_outflow_list.append(accum_flow_DQN_robot_multip_runs)
+            
+            average_pos_rx_stable = sum(pos_rx_stable_multip_runs)/float(len(pos_rx_stable_multip_runs))
+            average_pos_ry_stable = sum(pos_ry_stable_multip_runs)/float(len(pos_ry_stable_multip_runs))
+            print "average_pos_rx_stable:" + str(average_pos_rx_stable)
+            print "average_pos_ry_stable:" + str(average_pos_ry_stable)            
+            pos_rx_stable_list.append(pos_rx_stable_multip_runs)
+            pos_ry_stable_list.append(pos_ry_stable_multip_runs)
+            
+            average_converge_time = sum(converge_time_multip_runs)/float(len(converge_time_multip_runs))
+            print "average_converge_time:" + str(average_converge_time)
+            converge_time_list.append(converge_time_multip_runs)
+
+#            with open(os.path.join(model_path, 'converge_result.pkl'), 'w') as f:
+#                pickle.dump([average_accum_outflow_list, pos_rx_stable_list, pos_ry_stable_list, converge_time_list], f)
+                
+    list_index = 0+6
+    sum(average_accum_outflow_list[list_index])/float(len(average_accum_outflow_list[list_index]))
+    sum(pos_rx_stable_list[list_index])/float(len(pos_rx_stable_list[list_index]))
+    sum(pos_ry_stable_list[list_index])/float(len(pos_ry_stable_list[list_index]))
+    sum(converge_time_list[list_index])/float(len(converge_time_list[list_index]))
+
+
     accum_flow_DQN_robot_multip_runs = []
+    pos_rx_stable_multip_runs = []
+    pos_ry_stable_multip_runs = []
+    converge_time_multip_runs = []
     for i in range(num_experiments):  
         print ("Robot with DQN:")
         instane_flow_DQN_robot = []
@@ -798,14 +1013,21 @@ if PLOT_RESULT == True:
         init_flowAB()
         omega_rx = 0.0
         
-        pos_rx = 2.0
-        pos_ry = 2.0
+        pos_rx = 0.5
+        pos_ry = 0.5
         pos_rx_list = []
         pos_ry_list = []
+        action_value_np = np.zeros((simulation_time, len(action_dic)))
         
+        start_time = time.time()
+        time_sec = 0
         for step in range(numstep+1):
             if step == 0:
                 s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+#                action_value = sess.run(mainQN.Qout,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})
+#                action_value_np[time_sec, :] = action_value
+#                time_sec += 1
+#                a = np.argmax(action_value) #
                 a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
                 omega_rx = 0.0
         
@@ -821,22 +1043,26 @@ if PLOT_RESULT == True:
                 elif move_direction == 'STOP':
                     pass                      
                 else: raise ValueError('unacceptable moving direction') 
-                
-                if pos_rx > 3.5:
-                    pos_rx = 3.5
-                elif pos_rx < 0.5:
-                    pos_rx = 0.5
+
+                if pos_rx > rx_max:
+                    pos_rx = rx_max
+                elif pos_rx < rx_min:
+                    pos_rx = rx_min
                     
                 if pos_ry > 7.5:
                     pos_ry = 7.5
-                elif pos_ry < 0.5:
-                    pos_ry = 0.5
+                elif pos_ry < ry_min:
+                    pos_ry = ry_min                
                     
                 pos_rx_list.append(pos_rx)
                 pos_ry_list.append(pos_ry)
                     
             if step % sampl == 0 and step != 0:
                 s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+#                action_value = sess.run(mainQN.Qout,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})
+#                action_value_np[time_sec, :] = action_value
+#                time_sec += 1
+#                a = np.argmax(action_value) #
                 a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
                 
                 omega_rx = 0.0
@@ -853,16 +1079,16 @@ if PLOT_RESULT == True:
                 elif move_direction == 'STOP':
                     pass                      
                 else: raise ValueError('unacceptable moving direction') 
-                
-                if pos_rx > 3.5:
-                    pos_rx = 3.5
-                elif pos_rx < 0.5:
-                    pos_rx = 0.5
+
+                if pos_rx > rx_max:
+                    pos_rx = rx_max
+                elif pos_rx < rx_min:
+                    pos_rx = rx_min
                     
                 if pos_ry > 7.5:
                     pos_ry = 7.5
-                elif pos_ry < 0.5:
-                    pos_ry = 0.5  
+                elif pos_ry < ry_min:
+                    pos_ry = ry_min                
 
                 pos_rx_list.append(pos_rx)
                 pos_ry_list.append(pos_ry)
@@ -872,35 +1098,386 @@ if PLOT_RESULT == True:
             
             accum_flow_DQN_robot.append(np.sum(cout1))
         print ("end of Robot with DQN:")
+        elapsed_time = time.time() - start_time
+        #print(elapsed_time)
         accum_flow_DQN_robot_multip_runs.append(accum_flow_DQN_robot[-1])
+        print "accum_flow_DQN_robot:"+ str(accum_flow_DQN_robot[-1])
+
     
         for i in range(0,simulation_time):
             instane_flow_DQN_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+            
+        plt.plot(instane_flow_DQN_robot)
+        plt.show()
+        plt.plot(accum_flow_DQN_robot)
+        plt.show()        
         
-    plt.plot(instane_flow_DQN_robot)
-    plt.show()
-    print(accum_flow_DQN_robot[-1])
-    sum(accum_flow_DQN_robot_multip_runs)/float(len(accum_flow_DQN_robot_multip_runs))
-    
-    plt.plot(pos_rx_list)
-    plt.ylabel('Robot position on x axis')
-    plt.xlabel('Time(s)')     
-    plt.show()    
-    plt.plot(pos_ry_list)
-    plt.ylabel('Robot position on y axis')
-    plt.xlabel('Time(s)')     
-    pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
-    pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
+        with open(os.path.join(model_path, 'outflow_rx3_5_ry0_5.pkl'), 'w') as f:  #outflow_7_5.pkl #outflow_rx2_ry2.pkl#outflow_rx3_5_ry0_5.pkl
+            pickle.dump([instane_flow_DQN_robot, accum_flow_DQN_robot], f)        
+#'../models/6-13_flowA_B_180_120/'#'../models/6-26_flowA_B_180_120_random_robot_position'#  
 
-    for idx, value in enumerate(pos_rx_list):
-        if value >= pos_rx_stable:
-            print idx
-            break
+        with open(os.path.join('../models/6-13_flowA_B_180_120/', 'outflow_rx3_5_ry0_5.pkl'), 'r') as f:
+            flow_random_robot_init = pickle.load(f)
+                  
         
-    for idx, value in enumerate(pos_ry_list):
-        if value >= pos_ry_stable:
-            print idx
-            break
+        case1 = plt.plot(instane_flow_DQN_robot, 'r', label='case1')
+        case2 = plt.plot(flow_random_robot_init[0], 'b', label='case2')
+        plt.ylabel('Instantaneous flow')
+        plt.xlabel('Time(s)')          
+        plt.show()        
+
+        case1 = plt.plot(accum_flow_DQN_robot[::sampl], 'r', label='case1')
+        case2 = plt.plot(flow_random_robot_init[1][::sampl], 'b', label='case.21')
+#        plt.legend([case2, case1], ['case2', 'case1'])
+        plt.ylabel('Accumulated flow')
+        plt.xlabel('Time(s)')          
+        plt.show() 
+        
+        plt.plot(pos_rx_list)
+        plt.ylabel('Robot position on x axis')
+        plt.xlabel('Time(s)')     
+        plt.show()    
+        plt.plot(pos_ry_list)
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Time(s)')  
+        plt.show() 
+        pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
+        pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
+        print "pos_rx_stable:"+ str(pos_rx_stable)
+        print "pos_ry_stable:"+ str(pos_ry_stable)
+        pos_rx_stable_multip_runs.append(pos_rx_stable)
+        pos_ry_stable_multip_runs.append(pos_ry_stable)
+        
+        if pos_rx_list[0] <= pos_rx_stable:
+            for idx, value in enumerate(pos_rx_list):
+                if value >= pos_rx_stable:
+                    print idx
+                    rx_idx = idx
+                    break        
+        else:
+            for idx, value in enumerate(pos_rx_list):
+                if value <= pos_rx_stable:
+                    print idx
+                    rx_idx = idx
+                    break        
+            
+        if pos_ry_list[0] <= pos_ry_stable:
+            for idx, value in enumerate(pos_ry_list):
+                if value >= pos_ry_stable:
+                    print idx
+                    ry_idx = idx
+                    break        
+        else:
+            for idx, value in enumerate(pos_ry_list):
+                if value <= pos_ry_stable:
+                    print idx
+                    ry_idx = idx
+                    break        
+        converge_time = max(rx_idx, ry_idx)
+        print "converge_time:" + str(converge_time)  
+        converge_time_multip_runs.append(converge_time)    
+            
+#            plt.plot(pos_rx_list)
+#            plt.ylabel('Robot position on x axis')
+#            plt.xlabel('Time(s)')     
+#            plt.show()    
+#            plt.plot(pos_ry_list)
+#            plt.ylabel('Robot position on y axis')
+#            plt.xlabel('Time(s)')     
+#            pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
+#            pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
+#            print "pos_rx_stable:"+ str(pos_rx_stable)
+#            print "pos_ry_stable:"+ str(pos_ry_stable)
+#            
+#            pos_rx_stable_list.append(pos_rx_stable)
+#            pos_ry_stable_list.append(pos_ry_stable)
+            
+        plt.plot(pos_rx_list, pos_ry_list)
+        plt.xlim((0, 4))
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Robot position on x axis')
+        
+#            if pos_rx_list[0] <= pos_rx_stable:
+#                for idx, value in enumerate(pos_rx_list):
+#                    if value >= pos_rx_stable:
+#                        print idx
+#                        rx_idx = idx
+#                        break        
+#            else:
+#                for idx, value in enumerate(pos_rx_list):
+#                    if value <= pos_rx_stable:
+#                        print idx
+#                        rx_idx = idx
+#                        break        
+#                
+#            if pos_ry_list[0] <= pos_ry_stable:
+#                for idx, value in enumerate(pos_ry_list):
+#                    if value >= pos_ry_stable:
+#                        print idx
+#                        ry_idx = idx
+#                        break        
+#            else:
+#                for idx, value in enumerate(pos_ry_list):
+#                    if value <= pos_ry_stable:
+#                        print idx
+#                        ry_idx = idx
+#                        break        
+#            converge_time = max(rx_idx, ry_idx)
+#            print "converge_time:" + str(converge_time)   
+#            converge_time_list.append(converge_time)
+    
+    accum_flow_DQN_robot_multip_runs = []
+    pos_rx_stable_multip_runs = []
+    pos_ry_stable_multip_runs = []
+    converge_time_multip_runs = []
+    for i in range(num_experiments):  
+        print ("Robot with DQN:")
+        instane_flow_DQN_robot = []
+        accum_flow_DQN_robot = []      
+        init_flowAB()
+        omega_rx = 0.0
+        
+        pos_rx = 0.5
+        pos_ry = 0.5
+        move_up = 0.0
+        move_right = 0.0
+        move_interval = 5
+        change_update_time = 5000
+        pos_rx_list = []
+        pos_ry_list = []
+        pos_rx_fake_list = []
+        pos_ry_fake_list = []        
+        ry_dir_list = []
+        rx_dir_list = []
+        action_value_np = np.zeros((simulation_time, len(action_dic)))
+        
+        start_time = time.time()
+        time_sec = 0
+        for step in range(numstep+1):
+            if step == 0:
+                s,_=move_crowd(robot_flag = 1.0, render_flag = True, omega=omega_rx, numthstep=step, gener_flag=True)
+#                action_value = sess.run(mainQN.Qout,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})
+#                action_value_np[time_sec, :] = action_value
+#                time_sec += 1
+#                a = np.argmax(action_value) #
+                a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                omega_rx = 0.0
+        
+                move_direction = action_dic[str(a)]
+                if step < change_update_time*sampl:
+                    if move_direction == 'UP':
+                        pos_ry = pos_ry + robot_step_len
+                        ry_dir_list.append(1)
+                    elif move_direction == 'DOWN':
+                        pos_ry = pos_ry - robot_step_len
+                        ry_dir_list.append(-1)
+                    elif move_direction == 'LEFT':
+                        pos_rx = pos_rx - robot_step_len
+                        rx_dir_list.append(1)
+                    elif move_direction == 'RIGHT':
+                        pos_rx = pos_rx + robot_step_len
+                        rx_dir_list.append(-1)
+                    elif move_direction == 'STOP':
+                        pass                      
+                    else: raise ValueError('unacceptable moving direction')                     
+                    
+                else:
+                    if move_direction == 'UP':
+                        move_up = move_up + robot_step_len
+                    elif move_direction == 'DOWN':
+                        move_up = move_up - robot_step_len
+                    elif move_direction == 'LEFT':
+                        move_right = move_right - robot_step_len
+                    elif move_direction == 'RIGHT':
+                        move_right = move_right + robot_step_len
+                    elif move_direction == 'STOP':
+                        pass                      
+                    else: raise ValueError('unacceptable moving direction')                 
+                                
+
+                if pos_rx > rx_max:
+                    pos_rx = rx_max
+                elif pos_rx < rx_min:
+                    pos_rx = rx_min
+                    
+                if pos_ry > 7.5:
+                    pos_ry = 7.5
+                elif pos_ry < ry_min:
+                    pos_ry = ry_min                
+                    
+                pos_rx_list.append(pos_rx)
+                pos_ry_list.append(pos_ry)
+                pos_rx_fake_list.append(pos_rx)
+                pos_ry_fake_list.append(pos_ry)
+                    
+            if step % sampl == 0 and step != 0:
+                s,_=move_crowd(robot_flag = 1.0, render_flag = True, omega=omega_rx, numthstep=step, gener_flag=True)
+#                action_value = sess.run(mainQN.Qout,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})
+#                action_value_np[time_sec, :] = action_value
+#                time_sec += 1
+#                a = np.argmax(action_value) #
+                a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                
+                omega_rx = 0.0
+        
+                move_direction = action_dic[str(a)]
+                if step < change_update_time*sampl:
+                    if move_direction == 'UP':
+                        pos_ry = pos_ry + robot_step_len
+                        ry_dir_list.append(1)
+                        rx_dir_list.append(0)
+                    elif move_direction == 'DOWN':
+                        pos_ry = pos_ry - robot_step_len
+                        ry_dir_list.append(-1)
+                        rx_dir_list.append(0)
+                    elif move_direction == 'LEFT':
+                        pos_rx = pos_rx - robot_step_len
+                        rx_dir_list.append(1)
+                        ry_dir_list.append(0)
+                    elif move_direction == 'RIGHT':
+                        pos_rx = pos_rx + robot_step_len
+                        rx_dir_list.append(-1)
+                        ry_dir_list.append(0)
+                    elif move_direction == 'STOP':
+                        pass                      
+                    else: raise ValueError('unacceptable moving direction')                                                                
+                    
+                else:                
+                    if move_direction == 'UP':
+                        move_up = move_up + robot_step_len
+                    elif move_direction == 'DOWN':
+                        move_up = move_up - robot_step_len
+                    elif move_direction == 'LEFT':
+                        move_right = move_right - robot_step_len
+                    elif move_direction == 'RIGHT':
+                        move_right = move_right + robot_step_len
+                    elif move_direction == 'STOP':
+                        pass                      
+                    else: raise ValueError('unacceptable moving direction')   
+                
+                    if step % (sampl*move_interval) == 0:
+                        pos_rx = pos_rx + move_right
+                        pos_ry = pos_ry + move_up
+                        move_up = 0.0
+                        move_right = 0.0
+
+
+                if pos_rx > rx_max:
+                    pos_rx = rx_max
+                elif pos_rx < rx_min:
+                    pos_rx = rx_min
+                    
+                if pos_ry > 7.5:
+                    pos_ry = 7.5
+                elif pos_ry < ry_min:
+                    pos_ry = ry_min                
+
+                pos_rx_fake_list.append(pos_rx)
+                pos_ry_fake_list.append(pos_ry)
+                
+                average_window_size = 10
+                dir_change_thread = 2
+                if step > 40*sampl:
+                    if sum(rx_dir_list[step/sampl-average_window_size:step/sampl]) <= dir_change_thread:
+                        pos_rx = sum(pos_rx_fake_list[step/sampl-average_window_size:step/sampl])/float(average_window_size)
+                        pos_rx = round(pos_rx/robot_step_len)*robot_step_len
+                    if sum(ry_dir_list[step/sampl-average_window_size:step/sampl]) <= dir_change_thread:
+                        pos_ry = sum(pos_ry_fake_list[step/sampl-average_window_size:step/sampl])/float(average_window_size)
+                        pos_ry = round(pos_ry/robot_step_len)*robot_step_len
+                        
+                pos_rx_list.append(pos_rx)
+                pos_ry_list.append(pos_ry)
+                    
+            if step % sampl != 0:           
+                move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot            
+            
+            accum_flow_DQN_robot.append(np.sum(cout1))
+        print ("end of Robot with DQN:")
+        elapsed_time = time.time() - start_time
+        #print(elapsed_time)
+        accum_flow_DQN_robot_multip_runs.append(accum_flow_DQN_robot[-1])
+        print "accum_flow_DQN_robot:"+ str(accum_flow_DQN_robot[-1])
+
+    
+        for i in range(0,simulation_time):
+            instane_flow_DQN_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+            
+        plt.plot(instane_flow_DQN_robot)
+        plt.show()
+        plt.plot(accum_flow_DQN_robot)
+        plt.show()        
+        
+        with open(os.path.join(model_path, 'outflow_rx3_5_ry0_5.pkl'), 'w') as f:  #outflow_7_5.pkl #outflow_rx2_ry2.pkl#outflow_rx3_5_ry0_5.pkl
+            pickle.dump([instane_flow_DQN_robot, accum_flow_DQN_robot], f)        
+#'../models/6-13_flowA_B_180_120/'#'../models/6-26_flowA_B_180_120_random_robot_position'#  
+
+        with open(os.path.join('../models/6-13_flowA_B_180_120/', 'outflow_rx3_5_ry0_5.pkl'), 'r') as f:
+            flow_random_robot_init = pickle.load(f)
+                  
+        
+        case1 = plt.plot(instane_flow_DQN_robot, 'r', label='case1')
+        case2 = plt.plot(flow_random_robot_init[0], 'b', label='case2')
+        plt.ylabel('Instantaneous flow')
+        plt.xlabel('Time(s)')          
+        plt.show()        
+
+        case1 = plt.plot(accum_flow_DQN_robot[::sampl], 'r', label='case1')
+        case2 = plt.plot(flow_random_robot_init[1][::sampl], 'b', label='case.21')
+#        plt.legend([case2, case1], ['case2', 'case1'])
+        plt.ylabel('Accumulated flow')
+        plt.xlabel('Time(s)')          
+        plt.show() 
+        
+        plt.plot(pos_rx_list)
+        plt.ylabel('Robot position on x axis')
+        plt.xlabel('Time(s)')     
+        plt.show()    
+        plt.plot(pos_ry_list)
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Time(s)')  
+        plt.show() 
+        pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
+        pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
+        print "pos_rx_stable:"+ str(pos_rx_stable)
+        print "pos_ry_stable:"+ str(pos_ry_stable)
+        pos_rx_stable_multip_runs.append(pos_rx_stable)
+        pos_ry_stable_multip_runs.append(pos_ry_stable)
+        
+        if pos_rx_list[0] <= pos_rx_stable:
+            for idx, value in enumerate(pos_rx_list):
+                if value >= pos_rx_stable:
+                    print idx
+                    rx_idx = idx
+                    break        
+        else:
+            for idx, value in enumerate(pos_rx_list):
+                if value <= pos_rx_stable:
+                    print idx
+                    rx_idx = idx
+                    break        
+            
+        if pos_ry_list[0] <= pos_ry_stable:
+            for idx, value in enumerate(pos_ry_list):
+                if value >= pos_ry_stable:
+                    print idx
+                    ry_idx = idx
+                    break        
+        else:
+            for idx, value in enumerate(pos_ry_list):
+                if value <= pos_ry_stable:
+                    print idx
+                    ry_idx = idx
+                    break        
+        converge_time = max(rx_idx, ry_idx)
+        print "converge_time:" + str(converge_time)  
+        converge_time_multip_runs.append(converge_time)    
+
+
+        plt.plot(pos_rx_list, pos_ry_list)
+        plt.xlim((0, 4))
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Robot position on x axis')
+
 
         
     window_size = 5
@@ -914,9 +1491,15 @@ if PLOT_RESULT == True:
     average_instane_flow_rand_robot = np.convolve(instane_flow_rand_robot, np.ones((window_size,))/window_size, mode='valid')
     average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')
     plt.plot(average_instane_flow_no_robot, 'k-', average_instane_flow_rand_robot, 'b-', average_instane_flow_DQN_robot, 'r-')
+    plt.ylabel('Instantaneous flow')
+    plt.xlabel('Time(s)')          
+    plt.show()  
     
-    plt.plot(instane_flow_no_robot, 'k-', instane_flow_rand_robot, 'b-', instane_flow_DQN_robot, 'r-')
+    #plt.plot(instane_flow_no_robot, 'k-', instane_flow_rand_robot, 'b-', instane_flow_DQN_robot, 'r-')
     plt.plot(accum_flow_no_robot[::sampl], 'k-', accum_flow_rand_robot[::sampl], 'b-', accum_flow_DQN_robot[::sampl], 'r-')
+    plt.ylabel('Accumulated flow')
+    plt.xlabel('Time(s)')          
+    plt.show()    
 
     with open('../models/average_accumulated_flow.pkl', 'w') as f:
         pickle.dump([accum_flow_no_robot_multip_runs, accum_flow_rand_robot_multip_runs, accum_flow_DQN_robot_multip_runs], f)

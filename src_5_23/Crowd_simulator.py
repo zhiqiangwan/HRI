@@ -33,8 +33,8 @@ flow_win_size = 4
 
 
 
-num_flowA = 250#180#120#150#
-num_flowB = 50#120#180#150#
+num_flowA = 200#180#75#225#250#100#50#75#100#120#150#
+num_flowB = 100#120#225#75#50#200#250#225#200#180#150#
 
 flowA_init_wide = 3.6
 flowA_x_start = 0
@@ -119,18 +119,10 @@ num_episodes = 5000 #How many episodes of game environment to train network with
 
 pre_train_steps = 100000 # 10000 #How many steps of random actions before training begins.
 max_epLength = 400#1000 #The max allowed length of our episode.
-load_model = True#False #  Whether to load a saved model.
 tau = 0.001 #Rate to update target network toward primary network
 ob_len = 200 #size of the image of the environment
 action_size = len(action_dic)
 num_sim_steps = 30000
-
-#'../models/7_10_flowA_B_180_120_random_robot_position_rang_0_3_8'-----'DDQNmodel800000.cptk'
-# Check point
-if load_model:
-    model_path = '../models/7_10_flowA_B_180_120_random_robot_position_rang_0_3_8'#'../models/7_7_flowA_B_180_120_random_robot_position'#'../models/6-26_flowA_B_180_120_random_robot_position'#'
-else:
-    model_path = '../models/'
 
 # DQN
 # some useful functions
@@ -171,18 +163,26 @@ ped_outcount_list = []
 total_steps = 0
 ShowInterval = 10
 
+#'../models/7_10_flowA_B_180_120_random_robot_position_rang_0_3_8'-----'DDQNmodel800000.cptk'
+#'../models/7_23_step_size_0_1'-----'DDQNmodel1300000.cptk'
+# Check point
+
+load_model = True#False #  Whether to load a saved model.
+
+if load_model:
+    model_path = '../models/7_31_flow_75_225_pretrain_on_7_10/'#
+else:
+    model_path = '../models/'
+
+
 if load_model == True:
     print 'Loading Model...'
-    #ckpt = tf.train.get_checkpoint_state(model_path)
-    saver.restore(sess,os.path.join(model_path, 'DDQNmodel800000.cptk'))
-
-#if load_model == True:
-#    print 'Loading Model...'
-#    ckpt = tf.train.get_checkpoint_state(model_path)
-#    saver.restore(sess,ckpt.model_checkpoint_path)
-#else:
-#    print 'initialize Model parameters...'
-#    tf.global_variables_initializer().run()
+    ckpt = tf.train.get_checkpoint_state(model_path)
+    saver.restore(sess,ckpt.model_checkpoint_path)
+#    saver.restore(sess,os.path.join(model_path, 'DDQNmodel800000.cptk'))
+else:
+    print 'initialize Model parameters...'
+    tf.global_variables_initializer().run()
 
 os.environ["CUDA_DEVICE"] = "0"
 import pycuda.driver as cuda
@@ -566,7 +566,7 @@ simulation_time = 400
 numstep = sampl*simulation_time
 num_experiments = 10
 
-robot_step_len = 0.2
+robot_step_len = 0.2#0.1#
 for episode in range(num_episodes):
     episodeBuffer = experience_buffer()
     # reset environment and get first observation
@@ -681,6 +681,12 @@ average_rList = np.convolve(rList, np.ones((window_size,))/window_size, mode='va
 plt.plot(average_rList)
 plt.ylabel('Accumulated rewards')
 plt.xlabel('Epoch') 
+plt.show()
+
+plt.plot(rList)
+plt.ylabel('Accumulated rewards')
+plt.xlabel('Epoch') 
+plt.show()
 
 with open(os.path.join(model_path, 'average_accumulated_flow.pkl'), 'r') as f:
     average_accumulated_flow = pickle.load(f)
@@ -850,7 +856,7 @@ if PLOT_RESULT == True:
         time_sec = 0
         for step in range(numstep+1):
             if step == 0:
-                s,_=move_crowd(robot_flag = 1.0, render_flag = True, omega=omega_rx, numthstep=step, gener_flag=True)
+                s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
                 a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
                 omega_rx = 0.0
         
@@ -881,7 +887,7 @@ if PLOT_RESULT == True:
                 pos_ry_list.append(pos_ry)
                     
             if step % sampl == 0 and step != 0:
-                s,_=move_crowd(robot_flag = 1.0, render_flag = True, omega=omega_rx, numthstep=step, gener_flag=True)
+                s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
                 a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
                 
                 omega_rx = 0.0
@@ -1035,6 +1041,25 @@ if PLOT_RESULT == True:
 
     with open('../models/average_accumulated_flow.pkl', 'w') as f:
         pickle.dump([accum_flow_no_robot_multip_runs, accum_flow_rand_robot_multip_runs, accum_flow_DQN_robot_multip_runs], f)
+
+
+##############################################################################################################
+########## plot results where the model is pretrained on other model  ######################
+    with open(os.path.join('../models/7_10_flowA_B_180_120_random_robot_position_rang_0_3_8/', 'workspace.pkl'), 'r') as f:
+       rList_pretrain = pickle.load(f)
+    rList_1 = rList_pretrain[:2000]
+    
+    with open(os.path.join('../models/7_31_flow_75_225_pretrain_on_7_10/', 'workspace.pkl'), 'r') as f:
+       rList_retrain = pickle.load(f)    
+    
+    rList_all = rList_1 + rList_retrain
+    
+    window_size = 5
+    average_rList = np.convolve(rList_all, np.ones((window_size,))/window_size, mode='valid')   
+    plt.plot(average_rList)
+    plt.ylabel('Accumulated rewards')
+    plt.xlabel('Epoch') 
+    plt.show()
 
 ##############################################################################################################
 ########## robot position is initialized in 0.5~4.0, results are averaged over 10 runs  ######################

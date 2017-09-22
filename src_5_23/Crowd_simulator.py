@@ -11,6 +11,7 @@ import cv2
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import time
+import scipy
 
 
 #local application/library specific imports
@@ -103,10 +104,11 @@ vel_ry = 0
 init_pos_rx = 2.0#1.50
 phi = 0.0
 
+#robot inital position range
 rx_min = 0.0
 rx_max = 3.8
 ry_min = 0.0
-ry_max = 3.8
+ry_max = 7.8
 
 # train parameters
 batch_size = 32 #How many experiences to use for each training step.
@@ -115,10 +117,11 @@ y = .99 #Discount factor on the target Q-values
 startE = 1 #Starting chance of random action
 endE = 0.1 #Final chance of random action
 anneling_steps = 100000. #How many steps of training to reduce startE to endE.
-num_episodes = 5000 #How many episodes of game environment to train network with.
+num_episodes = 500000 #How many episodes of game environment to train network with.
 
-pre_train_steps = 100000 # 10000 #How many steps of random actions before training begins.
-max_epLength = 400#1000 #The max allowed length of our episode.
+pre_train_steps = 50000 # 10000 #How many steps of random actions before training begins.
+simulation_time = 400#200#
+max_epLength = 400#200# the same as simulation time
 tau = 0.001 #Rate to update target network toward primary network
 ob_len = 200 #size of the image of the environment
 action_size = len(action_dic)
@@ -167,10 +170,10 @@ ShowInterval = 10
 #'../models/7_23_step_size_0_1'-----'DDQNmodel1300000.cptk'
 # Check point
 
-load_model = True#False #  Whether to load a saved model.
+load_model = True# False #    Whether to load a saved model.
 
 if load_model:
-    model_path = '../models/7_31_flow_75_225_pretrain_on_7_10/'#
+    model_path = '../models/paper_9_4_initial_pos_0_8/'#
 else:
     model_path = '../models/'
 
@@ -179,7 +182,7 @@ if load_model == True:
     print 'Loading Model...'
     ckpt = tf.train.get_checkpoint_state(model_path)
     saver.restore(sess,ckpt.model_checkpoint_path)
-#    saver.restore(sess,os.path.join(model_path, 'DDQNmodel800000.cptk'))
+    #saver.restore(sess,os.path.join(model_path, 'DDQNmodel1500000.cptk'))
 else:
     print 'initialize Model parameters...'
     tf.global_variables_initializer().run()
@@ -562,9 +565,11 @@ def render_scene(robot_flag=False,shd_show=True):
     return img
 
 PLOT_RESULT = False
-simulation_time = 400
 numstep = sampl*simulation_time
 num_experiments = 10
+
+num_flowA_list = [75, 100, 150, 180, 200]
+num_flowB_list = [225, 200, 150, 120, 100]
 
 robot_step_len = 0.2#0.1#
 for episode in range(num_episodes):
@@ -572,7 +577,10 @@ for episode in range(num_episodes):
     # reset environment and get first observation
     simstep = 0
     env_step = 0
-    #crowd = []
+    
+    flow_ratio_index = np.random.randint(0, len(num_flowA_list))
+    num_flowA = num_flowA_list[flow_ratio_index]
+    num_flowB = num_flowB_list[flow_ratio_index]
     init_flowAB()
     # I need to initialise robot position, velocity and flag
     
@@ -615,8 +623,8 @@ for episode in range(num_episodes):
         elif pos_rx < rx_min:
             pos_rx = rx_min
             
-        if pos_ry > 7.5:
-            pos_ry = 7.5
+        if pos_ry > ry_max:
+            pos_ry = ry_max
         elif pos_ry < ry_min:
             pos_ry = ry_min
         
@@ -667,16 +675,17 @@ for episode in range(num_episodes):
     # get all experience from this episode and discount their rewards
     myBuffer.add(episodeBuffer.buffer)
     rList.append(rAll)
-
-
-with open('../models/workspace.pkl', 'w') as f:
-    pickle.dump(rList, f)
+    
+    if (episode % 1000 == 0) and (total_steps > pre_train_steps):        
+        with open('../models/workspace.pkl', 'w') as f:
+            pickle.dump(rList, f)
+            
 #(6323-5973)/5973.0
 
 with open(os.path.join(model_path, 'workspace.pkl'), 'r') as f:
    rList = pickle.load(f)
 
-window_size = 5
+window_size = 10
 average_rList = np.convolve(rList, np.ones((window_size,))/window_size, mode='valid')   
 plt.plot(average_rList)
 plt.ylabel('Accumulated rewards')
@@ -724,6 +733,8 @@ if PLOT_RESULT == True:
         instane_flow_no_robot = []
         accum_flow_no_robot = []
 
+        num_flowA = 75
+        num_flowB = 225
         init_flowAB()    
         for step in range(numstep+1):
             if step % sampl ==0:
@@ -781,9 +792,12 @@ if PLOT_RESULT == True:
     for i in range(num_experiments):  
         print ("Robot takes random action:")
         instane_flow_rand_robot = []
-        accum_flow_rand_robot = []      
+        accum_flow_rand_robot = []   
+        
+        num_flowA = 200
+        num_flowB = 100        
         init_flowAB() 
-        pos_rx = 0.5
+        pos_rx = 2.0
         pos_ry = 0.5
         for step in range(numstep+1):
             if step % sampl ==0:
@@ -809,8 +823,8 @@ if PLOT_RESULT == True:
                 elif pos_rx < rx_min:
                     pos_rx = rx_min
                     
-                if pos_ry > 7.5:
-                    pos_ry = 7.5
+                if pos_ry > ry_max:
+                    pos_ry = ry_max
                 elif pos_ry < ry_min:
                     pos_ry = ry_min                
                     
@@ -835,6 +849,9 @@ if PLOT_RESULT == True:
 ###########################################################################################################
 ########################### single run results ###############################################
 
+    num_flowA_list = [75, 100, 150, 180, 200]
+    num_flowB_list = [225, 200, 150, 120, 100]
+
     accum_flow_DQN_robot_multip_runs = []
     pos_rx_stable_multip_runs = []
     pos_ry_stable_multip_runs = []
@@ -842,14 +859,17 @@ if PLOT_RESULT == True:
     for i in range(num_experiments):  
         print ("Robot with DQN:")
         instane_flow_DQN_robot = []
-        accum_flow_DQN_robot = []      
+        accum_flow_DQN_robot = []    
+        
+        num_flowA = 200
+        num_flowB = 100
         init_flowAB()
         omega_rx = 0.0
         
-        pos_rx = 0.5
-        pos_ry = 0.5
-        pos_rx_list = []
-        pos_ry_list = []
+        pos_rx = 3.8
+        pos_ry = 1.0
+        pos_rx_list = [pos_rx]
+        pos_ry_list = [pos_ry]
         action_value_np = np.zeros((simulation_time, len(action_dic)))
         
         start_time = time.time()
@@ -875,11 +895,11 @@ if PLOT_RESULT == True:
 
                 if pos_rx > rx_max:
                     pos_rx = rx_max
-                elif pos_rx < rx_min:
-                    pos_rx = rx_min
+                elif pos_rx < 0.2:
+                    pos_rx = 0.2
                     
-                if pos_ry > 7.5:
-                    pos_ry = 7.5
+                if pos_ry > ry_max:
+                    pos_ry = ry_max
                 elif pos_ry < ry_min:
                     pos_ry = ry_min                
                     
@@ -907,11 +927,11 @@ if PLOT_RESULT == True:
 
                 if pos_rx > rx_max:
                     pos_rx = rx_max
-                elif pos_rx < rx_min:
-                    pos_rx = rx_min
+                elif pos_rx < 0.2:
+                    pos_rx = 0.2
                     
-                if pos_ry > 7.5:
-                    pos_ry = 7.5
+                if pos_ry > ry_max:
+                    pos_ry = ry_max
                 elif pos_ry < ry_min:
                     pos_ry = ry_min                
 
@@ -994,7 +1014,13 @@ if PLOT_RESULT == True:
         print "converge_time:" + str(converge_time)  
         converge_time_multip_runs.append(converge_time)    
 
-
+        plt.plot(pos_rx_list, pos_ry_list)
+        plt.xlim((0, 4))
+        plt.ylim((0, 8))
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Robot position on x axis')     
+        
+        
         with open(os.path.join(model_path, 'outflow_rx3_5_ry0_5.pkl'), 'w') as f:  #outflow_7_5.pkl #outflow_rx2_ry2.pkl#outflow_rx3_5_ry0_5.pkl
             pickle.dump([instane_flow_DQN_robot, accum_flow_DQN_robot], f)         
 
@@ -1015,12 +1041,1406 @@ if PLOT_RESULT == True:
         plt.show() 
             
             
+###########################################################################################################
+########################### plot outflow for different initial conditions ###############################################
+
+    num_flowA_list = [75, 100, 150, 180, 200]
+    num_flowB_list = [225, 200, 150, 120, 100]
+
+    accum_flow_DQN_robot_multip_runs = []
+    pos_rx_stable_multip_runs = []
+    pos_ry_stable_multip_runs = []
+    converge_time_multip_runs = []
+    for i in range(num_experiments):  
+        print ("Robot with DQN:")
+        instane_flow_DQN_robot = []
+        accum_flow_DQN_robot = []    
+        
+        num_flowA = 75
+        num_flowB = 225
+        init_flowAB()
+        omega_rx = 0.0
+        
+        pos_rx = 3.5
+        pos_ry = 7.5
+        pos_rx_list = [pos_rx]
+        pos_ry_list = [pos_ry]
+        action_value_np = np.zeros((simulation_time, len(action_dic)))
+        
+        start_time = time.time()
+        time_sec = 0
+        for step in range(numstep+1):
+            if step == 0:
+                s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                omega_rx = 0.0
+        
+                move_direction = action_dic[str(a)]
+                if move_direction == 'UP':
+                    pos_ry = pos_ry + robot_step_len
+                elif move_direction == 'DOWN':
+                    pos_ry = pos_ry - robot_step_len
+                elif move_direction == 'LEFT':
+                    pos_rx = pos_rx - robot_step_len
+                elif move_direction == 'RIGHT':
+                    pos_rx = pos_rx + robot_step_len
+                elif move_direction == 'STOP':
+                    pass                      
+                else: raise ValueError('unacceptable moving direction') 
+
+                if pos_rx > rx_max:
+                    pos_rx = rx_max
+                elif pos_rx < 0.2:
+                    pos_rx = 0.2
+                    
+                if pos_ry > ry_max:
+                    pos_ry = ry_max
+                elif pos_ry < ry_min:
+                    pos_ry = ry_min                
+                    
+                pos_rx_list.append(pos_rx)
+                pos_ry_list.append(pos_ry)
+                    
+            if step % sampl == 0 and step != 0:
+                s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                
+                omega_rx = 0.0
+        
+                move_direction = action_dic[str(a)]
+                if move_direction == 'UP':
+                    pos_ry = pos_ry + robot_step_len
+                elif move_direction == 'DOWN':
+                    pos_ry = pos_ry - robot_step_len
+                elif move_direction == 'LEFT':
+                    pos_rx = pos_rx - robot_step_len
+                elif move_direction == 'RIGHT':
+                    pos_rx = pos_rx + robot_step_len
+                elif move_direction == 'STOP':
+                    pass                      
+                else: raise ValueError('unacceptable moving direction') 
+
+                if pos_rx > rx_max:
+                    pos_rx = rx_max
+                elif pos_rx < 0.2:
+                    pos_rx = 0.2
+                    
+                if pos_ry > ry_max:
+                    pos_ry = ry_max
+                elif pos_ry < ry_min:
+                    pos_ry = ry_min                
+
+                pos_rx_list.append(pos_rx)
+                pos_ry_list.append(pos_ry)
+                    
+            if step % sampl != 0:           
+                move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot            
+            
+            accum_flow_DQN_robot.append(np.sum(cout1))
+        print ("end of Robot with DQN:")
+        elapsed_time = time.time() - start_time
+        #print(elapsed_time)
+        accum_flow_DQN_robot_multip_runs.append(accum_flow_DQN_robot[-1])
+        print "accum_flow_DQN_robot:"+ str(accum_flow_DQN_robot[-1])
+
+    
+        for i in range(0,simulation_time):
+            instane_flow_DQN_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+            
+        plt.plot(instane_flow_DQN_robot)
+        plt.show()
+        plt.plot(accum_flow_DQN_robot)
+        plt.show()                
+        
+        plt.plot(pos_rx_list)
+        plt.ylabel('Robot position on x axis')
+        plt.xlabel('Time(s)')     
+        plt.show()    
+        plt.plot(pos_ry_list)
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Time(s)')  
+        plt.show()                               
+        pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
+        pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
+        print "pos_rx_stable:"+ str(pos_rx_stable)
+        print "pos_ry_stable:"+ str(pos_ry_stable)
+        
+        window_size = 10
+        average_pos_rx = np.convolve(pos_rx_list, np.ones((window_size,))/window_size, mode='valid')  
+        average_pos_ry = np.convolve(pos_ry_list, np.ones((window_size,))/window_size, mode='valid') 
+        plt.plot(average_pos_rx)
+        plt.ylabel('Robot position on x axis')
+        plt.xlabel('Time(s)')     
+        plt.show()    
+        plt.plot(average_pos_ry)
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Time(s)')  
+        plt.show()         
+        
+        pos_rx_stable_multip_runs.append(pos_rx_stable)
+        pos_ry_stable_multip_runs.append(pos_ry_stable)
+        
+        if pos_rx_list[0] <= pos_rx_stable:
+            for idx, value in enumerate(pos_rx_list):
+                if value >= pos_rx_stable:
+                    print idx
+                    rx_idx = idx
+                    break        
+        else:
+            for idx, value in enumerate(pos_rx_list):
+                if value <= pos_rx_stable:
+                    print idx
+                    rx_idx = idx
+                    break        
+            
+        if pos_ry_list[0] <= pos_ry_stable:
+            for idx, value in enumerate(pos_ry_list):
+                if value >= pos_ry_stable:
+                    print idx
+                    ry_idx = idx
+                    break        
+        else:
+            for idx, value in enumerate(pos_ry_list):
+                if value <= pos_ry_stable:
+                    print idx
+                    ry_idx = idx
+                    break        
+        converge_time = max(rx_idx, ry_idx)
+        print "converge_time:" + str(converge_time)  
+        converge_time_multip_runs.append(converge_time)    
+
         plt.plot(pos_rx_list, pos_ry_list)
         plt.xlim((0, 4))
+        plt.ylim((0, 8))
         plt.ylabel('Robot position on y axis')
-        plt.xlabel('Robot position on x axis')        
+        plt.xlabel('Robot position on x axis')     
 
 
+    #flow ratio = 1:3, outflow when there is no robot
+    save_to_mat = {}    
+    window_size = 5        
+    average_instane_flow_no_robot = np.convolve(instane_flow_no_robot, np.ones((window_size,))/window_size, mode='valid')
+    save_to_mat['instane_flow_no_robot'] = average_instane_flow_no_robot
+    save_to_mat['accum_flow_no_robot'] = accum_flow_no_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_no_robot_flow_1_3', save_to_mat)
+
+    #  flow ratio = 1:3,  initial position (0.5, 0.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_0_5_y_0_5_flow_1_3', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+
+    #  flow ratio = 1:3,  initial position (0.5, 2.0)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_0_5_y_2_0_flow_1_3', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+
+    #  flow ratio = 1:3,  initial position (2.0, 7.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_02_0_y_7_5_flow_1_3', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+    
+    #  flow ratio = 1:3,  initial position (3.5, 7.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_3_5_y_7_5_flow_1_3', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+
+
+
+        
+    #  flow ratio = 2:1,  initial position (0.5, 0.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_0_5_y_0_5', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+
+    #  flow ratio = 2:1,  initial position (0.5, 2.0)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_0_5_y_2_0', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+
+    #  flow ratio = 2:1,  initial position (2.0, 7.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_02_0_y_7_5', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+    
+    #  flow ratio = 2:1,  initial position (3.5, 7.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_3_5_y_7_5', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+
+
+
+    #outflow when there is no robot
+    save_to_mat = {}    
+    window_size = 5        
+    average_instane_flow_no_robot = np.convolve(instane_flow_no_robot, np.ones((window_size,))/window_size, mode='valid')
+    save_to_mat['instane_flow_no_robot'] = average_instane_flow_no_robot
+    save_to_mat['accum_flow_no_robot'] = accum_flow_no_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_no_robot', save_to_mat)
+
+    #  flow ratio = 1:2,  initial position (0.5, 0.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_0_5_y_0_5_flow_1_2', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+
+    #  flow ratio = 1:2,  initial position (0.5, 2.0)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_0_5_y_2_0_flow_1_2', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+
+    #  flow ratio = 1:2,  initial position (2.0, 7.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_02_0_y_7_5_flow_1_2', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+    
+    #  flow ratio = 1:2,  initial position (3.5, 7.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_3_5_y_7_5_flow_1_2', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+
+###########################################################################################################
+######## adaptive adjust robot update frequency, plot outflow for different initial conditions ############
+
+    num_flowA_list = [75, 100, 150, 180, 200]
+    num_flowB_list = [225, 200, 150, 120, 100]
+
+    accum_flow_DQN_robot_multip_runs = []
+    pos_rx_stable_multip_runs = []
+    pos_ry_stable_multip_runs = []
+    converge_time_multip_runs = []
+    for i in range(num_experiments):  
+        print ("Robot with DQN:")
+        instane_flow_DQN_robot = []
+        accum_flow_DQN_robot = []    
+        
+        num_flowA = 200
+        num_flowB = 100
+        init_flowAB()
+        omega_rx = 0.0
+        
+        pos_rx = 0.5
+        pos_ry = 0.5
+        pos_rx_list = [pos_rx]
+        pos_ry_list = [pos_ry]
+        action_value_np = np.zeros((simulation_time, len(action_dic)))
+        
+        start_time = time.time()
+        time_sec = 0
+        
+        #adaptive adjust robot update frequency
+        ROBOT_UPDATE_SLOWLY = False
+        robot_update_period = 10
+        label_pos_rx = 2.5
+        label_pos_ry = 3.5
+        
+        for step in range(numstep+1):
+            if step == 0:
+                s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                omega_rx = 0.0
+        
+                move_direction = action_dic[str(a)]
+                if move_direction == 'UP':
+                    pos_ry = pos_ry + robot_step_len
+                elif move_direction == 'DOWN':
+                    pos_ry = pos_ry - robot_step_len
+                elif move_direction == 'LEFT':
+                    pos_rx = pos_rx - robot_step_len
+                elif move_direction == 'RIGHT':
+                    pos_rx = pos_rx + robot_step_len
+                elif move_direction == 'STOP':
+                    pass                      
+                else: raise ValueError('unacceptable moving direction') 
+
+                if pos_rx > rx_max:
+                    pos_rx = rx_max
+                elif pos_rx < 0.2:
+                    pos_rx = 0.2
+                    
+                if pos_ry > ry_max:
+                    pos_ry = ry_max
+                elif pos_ry < ry_min:
+                    pos_ry = ry_min                
+                    
+                pos_rx_list.append(pos_rx)
+                pos_ry_list.append(pos_ry)
+                    
+            if step % sampl == 0 and step != 0:
+                s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                
+                omega_rx = 0.0
+                
+                if not ROBOT_UPDATE_SLOWLY:
+                    move_direction = action_dic[str(a)]
+                else:
+                    if step % (sampl*robot_update_period) == 0:
+                        move_direction = action_dic[str(a)]
+                    else:
+                        move_direction = 'STOP'
+                if move_direction == 'UP':
+                    pos_ry = pos_ry + robot_step_len
+                elif move_direction == 'DOWN':
+                    pos_ry = pos_ry - robot_step_len
+                elif move_direction == 'LEFT':
+                    pos_rx = pos_rx - robot_step_len
+                elif move_direction == 'RIGHT':
+                    pos_rx = pos_rx + robot_step_len
+                elif move_direction == 'STOP':
+                    pass                      
+                else: raise ValueError('unacceptable moving direction') 
+
+                if pos_rx > rx_max:
+                    pos_rx = rx_max
+                elif pos_rx < 0.2:
+                    pos_rx = 0.2
+                    
+                if pos_ry > ry_max:
+                    pos_ry = ry_max
+                elif pos_ry < ry_min:
+                    pos_ry = ry_min                
+
+                if ( abs(pos_rx-label_pos_rx)<=0.5 ) and ( abs(pos_ry-label_pos_ry)<=0.5 ):
+                    ROBOT_UPDATE_SLOWLY = True
+                
+                pos_rx_list.append(pos_rx)
+                pos_ry_list.append(pos_ry)
+                    
+            if step % sampl != 0:           
+                move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot            
+            
+            accum_flow_DQN_robot.append(np.sum(cout1))
+        print ("end of Robot with DQN:")
+        elapsed_time = time.time() - start_time
+        #print(elapsed_time)
+        accum_flow_DQN_robot_multip_runs.append(accum_flow_DQN_robot[-1])
+        print "accum_flow_DQN_robot:"+ str(accum_flow_DQN_robot[-1])
+
+    
+        for i in range(0,simulation_time):
+            instane_flow_DQN_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+            
+        plt.plot(instane_flow_DQN_robot)
+        plt.show()
+        plt.plot(accum_flow_DQN_robot)
+        plt.show()                
+        
+        plt.plot(pos_rx_list)
+        plt.ylabel('Robot position on x axis')
+        plt.xlabel('Time(s)')     
+        plt.show()    
+        plt.plot(pos_ry_list)
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Time(s)')  
+        plt.show()                               
+        pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
+        pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
+        print "pos_rx_stable:"+ str(pos_rx_stable)
+        print "pos_ry_stable:"+ str(pos_ry_stable)
+        
+        window_size = 10
+        average_pos_rx = np.convolve(pos_rx_list, np.ones((window_size,))/window_size, mode='valid')  
+        average_pos_ry = np.convolve(pos_ry_list, np.ones((window_size,))/window_size, mode='valid') 
+        plt.plot(average_pos_rx)
+        plt.ylabel('Robot position on x axis')
+        plt.xlabel('Time(s)')     
+        plt.show()    
+        plt.plot(average_pos_ry)
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Time(s)')  
+        plt.show()         
+        
+        pos_rx_stable_multip_runs.append(pos_rx_stable)
+        pos_ry_stable_multip_runs.append(pos_ry_stable)
+        
+        if pos_rx_list[0] <= pos_rx_stable:
+            for idx, value in enumerate(pos_rx_list):
+                if value >= pos_rx_stable:
+                    print idx
+                    rx_idx = idx
+                    break        
+        else:
+            for idx, value in enumerate(pos_rx_list):
+                if value <= pos_rx_stable:
+                    print idx
+                    rx_idx = idx
+                    break        
+            
+        if pos_ry_list[0] <= pos_ry_stable:
+            for idx, value in enumerate(pos_ry_list):
+                if value >= pos_ry_stable:
+                    print idx
+                    ry_idx = idx
+                    break        
+        else:
+            for idx, value in enumerate(pos_ry_list):
+                if value <= pos_ry_stable:
+                    print idx
+                    ry_idx = idx
+                    break        
+        converge_time = max(rx_idx, ry_idx)
+        print "converge_time:" + str(converge_time)  
+        converge_time_multip_runs.append(converge_time)    
+
+        plt.plot(pos_rx_list, pos_ry_list)
+        plt.xlim((0, 4))
+        plt.ylim((0, 8))
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Robot position on x axis')     
+        
+    #  flow ratio = 2:1,  initial position (0.5, 0.5)    
+    save_to_mat = {} 
+    window_size = 5        
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')      
+    save_to_mat['instant_flow'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow'] = accum_flow_DQN_robot
+    scipy.io.savemat('../data/save_to_mat/outflow_x_0_5_y_0_5', save_to_mat) 
+    plt.plot(average_instane_flow_DQN_robot)   
+    plt.show()
+    plt.plot(accum_flow_DQN_robot) 
+    
+    
+##############################################################################################################
+########## robot intialized from 8 typical positions, results are averaged over 10 runs  ######################
+    num_flowA_list = [75, 100, 150, 180, 200]
+    num_flowB_list = [225, 200, 150, 120, 100]
+    
+#    init_pos_list = [ [0.5,0.5], [2.0, 0.5], [3.5, 0.5], [0.5, 1.5], [2.0, 1.5], [3.5, 1.5], [0.5, 2.5], [2.0, 2.5], [3.5, 2.5] ]
+    init_pos_list = [ [0.5, 0.5], [0.5, 2.0], [0.5, 4.0], [0.5, 6.0], [0.5, 7.5], [2.0, 0.5], [3.5, 0.5], [2.0, 7.5], [3.5, 7.5] ]
+
+    pos_rx_stable_list = []
+    pos_ry_stable_list = []
+    converge_time_list = []
+    average_accum_outflow_list = []
+    
+    pos_rx_results = []
+    pos_ry_results = []
+    accum_flow_DQN_results = []
+    converge_time_DQN_results = []
+    
+    for pos_loop in range(len(init_pos_list)):
+
+        accum_flow_DQN_robot_multip_runs = []
+        pos_rx_stable_multip_runs = []
+        pos_ry_stable_multip_runs = []
+        converge_time_multip_runs = []
+        
+        pos_rx_multip_runs = []
+        pos_ry_multip_runs = []
+        
+        
+        pos_rx_init = init_pos_list[pos_loop][0]
+        pos_ry_init = init_pos_list[pos_loop][1]
+        
+        for i in range(num_experiments):  
+            print ("Robot with DQN:")
+            instane_flow_DQN_robot = []
+            accum_flow_DQN_robot = []    
+            
+            num_flowA = 75
+            num_flowB = 225
+            init_flowAB()
+            omega_rx = 0.0
+            
+            pos_rx = pos_rx_init
+            pos_ry = pos_ry_init
+            pos_rx_list = [pos_rx]
+            pos_ry_list = [pos_ry]
+            
+            start_time = time.time()
+            for step in range(numstep+1):
+                if step == 0:
+                    s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                    a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                    omega_rx = 0.0
+            
+                    move_direction = action_dic[str(a)]
+                    if move_direction == 'UP':
+                        pos_ry = pos_ry + robot_step_len
+                    elif move_direction == 'DOWN':
+                        pos_ry = pos_ry - robot_step_len
+                    elif move_direction == 'LEFT':
+                        pos_rx = pos_rx - robot_step_len
+                    elif move_direction == 'RIGHT':
+                        pos_rx = pos_rx + robot_step_len
+                    elif move_direction == 'STOP':
+                        pass                      
+                    else: raise ValueError('unacceptable moving direction') 
+
+                    if pos_rx > rx_max:
+                        pos_rx = rx_max
+                    elif pos_rx < rx_min:
+                        pos_rx = rx_min
+                        
+                    if pos_ry > ry_max:
+                        pos_ry = ry_max
+                    elif pos_ry < ry_min:
+                        pos_ry = ry_min                        
+                        
+                    pos_rx_list.append(pos_rx)
+                    pos_ry_list.append(pos_ry)
+                        
+                if step % sampl == 0 and step != 0:
+                    s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                    a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                    
+                    omega_rx = 0.0
+            
+                    move_direction = action_dic[str(a)]
+                    if move_direction == 'UP':
+                        pos_ry = pos_ry + robot_step_len
+                    elif move_direction == 'DOWN':
+                        pos_ry = pos_ry - robot_step_len
+                    elif move_direction == 'LEFT':
+                        pos_rx = pos_rx - robot_step_len
+                    elif move_direction == 'RIGHT':
+                        pos_rx = pos_rx + robot_step_len
+                    elif move_direction == 'STOP':
+                        pass                      
+                    else: raise ValueError('unacceptable moving direction') 
+
+                    if pos_rx > rx_max:
+                        pos_rx = rx_max
+                    elif pos_rx < rx_min:
+                        pos_rx = rx_min
+                        
+                    if pos_ry > ry_max:
+                        pos_ry = ry_max
+                    elif pos_ry < ry_min:
+                        pos_ry = ry_min
+    
+                    pos_rx_list.append(pos_rx)
+                    pos_ry_list.append(pos_ry)
+                        
+                if step % sampl != 0:           
+                    move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot            
+                
+                accum_flow_DQN_robot.append(np.sum(cout1))
+            print ("end of Robot with DQN:")
+            elapsed_time = time.time() - start_time
+            #print(elapsed_time)
+            accum_flow_DQN_robot_multip_runs.append(accum_flow_DQN_robot[-1])
+            print "accum_flow_DQN_robot:"+ str(accum_flow_DQN_robot[-1])
+            
+            for i in range(0,simulation_time):
+                instane_flow_DQN_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+                
+            plt.plot(instane_flow_DQN_robot)
+            plt.show()            
+            
+            pos_rx_multip_runs.append(pos_rx_list)
+            pos_ry_multip_runs.append(pos_ry_list)
+
+            plt.plot(pos_rx_list)
+            plt.ylabel('Robot position on x axis')
+            plt.xlabel('Time(s)')     
+            plt.show()    
+            plt.plot(pos_ry_list)
+            plt.ylabel('Robot position on y axis')
+            plt.xlabel('Time(s)')  
+            plt.show() 
+            pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
+            pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
+            print "pos_rx_stable:"+ str(pos_rx_stable)
+            print "pos_ry_stable:"+ str(pos_ry_stable)
+            pos_rx_stable_multip_runs.append(pos_rx_stable)
+            pos_ry_stable_multip_runs.append(pos_ry_stable)
+            
+            if pos_rx_list[0] <= pos_rx_stable:
+                for idx, value in enumerate(pos_rx_list):
+                    if value >= pos_rx_stable:
+                        print idx
+                        rx_idx = idx
+                        break        
+            else:
+                for idx, value in enumerate(pos_rx_list):
+                    if value <= pos_rx_stable:
+                        print idx
+                        rx_idx = idx
+                        break        
+                
+            if pos_ry_list[0] <= pos_ry_stable:
+                for idx, value in enumerate(pos_ry_list):
+                    if value >= pos_ry_stable:
+                        print idx
+                        ry_idx = idx
+                        break        
+            else:
+                for idx, value in enumerate(pos_ry_list):
+                    if value <= pos_ry_stable:
+                        print idx
+                        ry_idx = idx
+                        break        
+            converge_time = max(rx_idx, ry_idx)
+            print "converge_time:" + str(converge_time)  
+            converge_time_multip_runs.append(converge_time)              
+        
+        pos_rx_results.append(pos_rx_multip_runs)
+        pos_ry_results.append(pos_ry_multip_runs)
+        accum_flow_DQN_results.append(accum_flow_DQN_robot_multip_runs)
+        converge_time_DQN_results.append(converge_time_multip_runs)
+        
+        average_accum_outflow = sum(accum_flow_DQN_robot_multip_runs)/float(len(accum_flow_DQN_robot_multip_runs))
+        print "average_accum_outflow:" + str(average_accum_outflow)
+        average_accum_outflow_list.append(accum_flow_DQN_robot_multip_runs)
+        
+        average_pos_rx_stable = sum(pos_rx_stable_multip_runs)/float(len(pos_rx_stable_multip_runs))
+        average_pos_ry_stable = sum(pos_ry_stable_multip_runs)/float(len(pos_ry_stable_multip_runs))
+        print "average_pos_rx_stable:" + str(average_pos_rx_stable)
+        print "average_pos_ry_stable:" + str(average_pos_ry_stable)            
+        pos_rx_stable_list.append(pos_rx_stable_multip_runs)
+        pos_ry_stable_list.append(pos_ry_stable_multip_runs)
+        
+        average_converge_time = sum(converge_time_multip_runs)/float(len(converge_time_multip_runs))
+        print "average_converge_time:" + str(average_converge_time)
+        converge_time_list.append(converge_time_multip_runs)
+
+    
+    with open(os.path.join('../results/', 'flow_1_3_converge_result.pkl'), 'w') as f:
+        pickle.dump([pos_rx_results, pos_ry_results, accum_flow_DQN_results, converge_time_DQN_results, 
+                     average_accum_outflow_list, pos_rx_stable_list, pos_ry_stable_list, converge_time_list], f)
+
+##### find robot trajectory for paper     , flow ratio = 1:3  #############
+    
+    with open(os.path.join('../results/9_11_converge_result_useful/', 'flow_1_3_converge_result.pkl'), 'r') as f:
+        loaded_results = pickle.load(f)
+    
+    pos_rx_results = loaded_results[0]
+    pos_ry_results = loaded_results[1]
+    accum_flow_DQN_results = loaded_results[2]
+    converge_time_DQN_results = loaded_results[3]
+    average_accum_outflow_list = loaded_results[4]
+    pos_rx_stable_list = loaded_results[5]
+    pos_ry_stable_list = loaded_results[6]
+    converge_time_list = loaded_results[7] 
+
+    #find the converging area      
+    init_pos_type = 0
+    for i in range(num_experiments):
+        print i
+        traj_pos_rx_plot = pos_rx_results[init_pos_type][i]
+        traj_pos_ry_plot = pos_ry_results[init_pos_type][i]
+        print "end position x:" + str(traj_pos_rx_plot[-1])
+        print "end position y:" + str(traj_pos_ry_plot[-1])
+        print "\n"
+        print "max range of x:" + str(max(traj_pos_rx_plot[-100:]))
+        print "min range of x:" + str(min(traj_pos_rx_plot[-100:]))
+        print "range of x:" + str(max(traj_pos_rx_plot[-100:])-min(traj_pos_rx_plot[-100:]))
+        print "\n"
+        print "max range of y:" + str(max(traj_pos_ry_plot[-100:]))
+        print "min range of y:" + str(min(traj_pos_ry_plot[-100:]))   
+        print "range of y:" + str(max(traj_pos_ry_plot[-100:])-min(traj_pos_ry_plot[-100:]))
+        print "\n"
+        print "accumulated outflow:" + str(accum_flow_DQN_results[init_pos_type][i])
+        plt.plot(traj_pos_rx_plot, traj_pos_ry_plot)
+        plt.xlim((0, 4))
+        plt.ylim((0, 8))
+        plt.show()        
+
+
+    
+    #average converging position
+    aver_converg_pos = []
+    for i in range(len(pos_rx_stable_list)):
+        aver_robot_stable_x = sum(pos_rx_stable_list[i])/float(num_experiments)
+        aver_robot_stable_y = sum(pos_ry_stable_list[i])/float(num_experiments)
+        aver_converg_pos.append([aver_robot_stable_x, aver_robot_stable_y])
+
+    aver_accum_flow = []
+    for i in range(len(accum_flow_DQN_results)):
+        aver_accum_flow.append( sum(accum_flow_DQN_results[i])/float(num_experiments) )
+
+    init_pos_type = 8
+    for i in range(num_experiments):
+        print i
+        traj_pos_rx_plot = pos_rx_results[init_pos_type][i]
+        traj_pos_ry_plot = pos_ry_results[init_pos_type][i]
+        plt.plot(traj_pos_rx_plot, traj_pos_ry_plot)
+        plt.xlabel('Robot position on x axis')  
+        plt.ylabel('Robot position on y axis')  
+        plt.xlim((0, 4))
+        plt.ylim((0, 8))
+        plt.show()
+        plt.plot(traj_pos_rx_plot)
+        plt.ylabel('Robot position on x axis')
+        plt.xlabel('Time(s)')          
+        plt.show()
+        plt.plot(traj_pos_ry_plot)
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Time(s)')          
+        plt.show()        
+    
+    # robot initial position (0.5, 0.5)   , traj 7 and  are good   (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[0][0]
+    save_to_mat['pos_ry_list'] = pos_ry_results[0][0]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_0_5', save_to_mat) 
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])    
+
+    # robot initial position (0.5, 2.0)     , traj 1 and  are good   (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[1][1]
+    save_to_mat['pos_ry_list'] = pos_ry_results[1][1]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_2_0', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])
+
+    # robot initial position (2.0, 7.5),   traj 3 are good      (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[7][3]
+    save_to_mat['pos_ry_list'] = pos_ry_results[7][3]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_2_0_y_7_5', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])  
+
+    # robot initial position (3.5, 7.5),   traj 0 are good     (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[8][4]
+    save_to_mat['pos_ry_list'] = pos_ry_results[8][4]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_3_5_y_7_5', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])  
+    
+    
+##### find robot trajectory for paper     , flow ratio = 1:2  #############
+    
+    with open(os.path.join('../results/', 'flow_1_2_converge_result.pkl'), 'r') as f:
+        loaded_results = pickle.load(f)
+    
+    pos_rx_results = loaded_results[0]
+    pos_ry_results = loaded_results[1]
+    accum_flow_DQN_results = loaded_results[2]
+    converge_time_DQN_results = loaded_results[3]
+    average_accum_outflow_list = loaded_results[4]
+    pos_rx_stable_list = loaded_results[5]
+    pos_ry_stable_list = loaded_results[6]
+    converge_time_list = loaded_results[7]  
+    
+    #average converging position
+    aver_converg_pos = []
+    for i in range(len(pos_rx_stable_list)):
+        aver_robot_stable_x = sum(pos_rx_stable_list[i])/float(num_experiments)
+        aver_robot_stable_y = sum(pos_ry_stable_list[i])/float(num_experiments)
+        aver_converg_pos.append([aver_robot_stable_x, aver_robot_stable_y])
+
+    aver_accum_flow = []
+    for i in range(len(accum_flow_DQN_results)):
+        aver_accum_flow.append( sum(accum_flow_DQN_results[i])/float(num_experiments) )
+
+    init_pos_type = 7
+    for i in range(num_experiments):
+        print i
+        traj_pos_rx_plot = pos_rx_results[init_pos_type][i]
+        traj_pos_ry_plot = pos_ry_results[init_pos_type][i]
+        plt.plot(traj_pos_rx_plot, traj_pos_ry_plot)
+        plt.xlim((0, 4))
+        plt.ylim((0, 8))
+        plt.show()
+    
+    # robot initial position (0.5, 0.5)   , traj 7 and 9 are good   (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[0][7]
+    save_to_mat['pos_ry_list'] = pos_ry_results[0][7]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_0_5', save_to_mat) 
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])
+
+    # robot initial position (0.5, 2.0)     , traj 0 and 5 are good   (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[1][7]
+    save_to_mat['pos_ry_list'] = pos_ry_results[1][7]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_2_0', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])
+    
+#     # robot initial position (0.5, 4.0)  , traj 0 and 2 are good
+#    save_to_mat = {} 
+#    save_to_mat['pos_rx_list'] = pos_rx_results[2][2]
+#    save_to_mat['pos_ry_list'] = pos_ry_results[2][2]
+#    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_4_0', save_to_mat)  
+#    plt.xlim((0, 4))
+#    plt.ylim((0, 8))    
+#    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])
+#     
+#    # robot initial position (0.5, 6.0) ,   traj 6 are good
+#    save_to_mat = {} 
+#    save_to_mat['pos_rx_list'] = pos_rx_results[3][6]
+#    save_to_mat['pos_ry_list'] = pos_ry_results[3][6]
+#    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_6_0', save_to_mat)  
+#    plt.xlim((0, 4))
+#    plt.ylim((0, 8))    
+#    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])    
+#
+#    # robot initial position (0.5, 7.5),   traj 0, 9 are good     (selected, backup)
+#    save_to_mat = {} 
+#    save_to_mat['pos_rx_list'] = pos_rx_results[4][0]
+#    save_to_mat['pos_ry_list'] = pos_ry_results[4][0]
+#    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_7_5', save_to_mat)  
+#    plt.xlim((0, 4))
+#    plt.ylim((0, 8))    
+#    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])   
+#
+#    # robot initial position (2.0, 0.5),   traj 1,4 are good     
+#    save_to_mat = {} 
+#    save_to_mat['pos_rx_list'] = pos_rx_results[5][4]
+#    save_to_mat['pos_ry_list'] = pos_ry_results[5][4]
+#    scipy.io.savemat('../data/save_to_mat/robot_traj_x_2_0_y_0_5', save_to_mat)  
+#    plt.xlim((0, 4))
+#    plt.ylim((0, 8))    
+#    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])   
+#
+#    # robot initial position (3.5, 0.5),   traj 2,5 are good     
+#    save_to_mat = {} 
+#    save_to_mat['pos_rx_list'] = pos_rx_results[6][2]
+#    save_to_mat['pos_ry_list'] = pos_ry_results[6][2]
+#    scipy.io.savemat('../data/save_to_mat/robot_traj_x_3_5_y_0_5', save_to_mat)  
+#    plt.xlim((0, 4))
+#    plt.ylim((0, 8))    
+#    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])  
+
+    # robot initial position (2.0, 7.5),   traj 6 are good      (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[7][6]
+    save_to_mat['pos_ry_list'] = pos_ry_results[7][6]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_2_0_y_7_5', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])  
+
+    # robot initial position (3.5, 7.5),   traj 1 are good     (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[8][1]
+    save_to_mat['pos_ry_list'] = pos_ry_results[8][1]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_3_5_y_7_5', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])  
+
+##### find robot trajectory for paper     , flow ratio = 2:1  #############
+    with open(os.path.join('../results/9_11_converge_result_useful/', 'flow_2_1_converge_result.pkl'), 'r') as f:
+        loaded_results = pickle.load(f)
+
+    pos_rx_results = loaded_results[0]
+    pos_ry_results = loaded_results[1]
+    accum_flow_DQN_results = loaded_results[2]
+    converge_time_DQN_results = loaded_results[3]
+    average_accum_outflow_list = loaded_results[4]
+    pos_rx_stable_list = loaded_results[5]
+    pos_ry_stable_list = loaded_results[6]
+    converge_time_list = loaded_results[7]  
+
+    init_pos_type = 7
+    for i in range(num_experiments):
+        print i
+        traj_pos_rx_plot = pos_rx_results[init_pos_type][i]
+        traj_pos_ry_plot = pos_ry_results[init_pos_type][i]
+        print "end position x:" + str(traj_pos_rx_plot[-1])
+        print "end position y:" + str(traj_pos_ry_plot[-1])
+        print "\n"
+        print "max range of x:" + str(max(traj_pos_rx_plot[-100:]))
+        print "min range of x:" + str(min(traj_pos_rx_plot[-100:]))
+        print "range of x:" + str(max(traj_pos_rx_plot[-100:])-min(traj_pos_rx_plot[-100:]))
+        print "\n"
+        print "max range of y:" + str(max(traj_pos_ry_plot[-100:]))
+        print "min range of y:" + str(min(traj_pos_ry_plot[-100:]))   
+        print "range of y:" + str(max(traj_pos_ry_plot[-100:])-min(traj_pos_ry_plot[-100:]))
+        print "\n"
+        print "accumulated outflow:" + str(accum_flow_DQN_results[init_pos_type][i])
+        plt.plot(traj_pos_rx_plot, traj_pos_ry_plot)
+        plt.xlim((0, 4))
+        plt.ylim((0, 8))
+        plt.show() 
+        
+    #average converging position
+    aver_converg_pos = []
+    for i in range(len(pos_rx_stable_list)):
+        aver_robot_stable_x = sum(pos_rx_stable_list[i])/float(num_experiments)
+        aver_robot_stable_y = sum(pos_ry_stable_list[i])/float(num_experiments)
+        aver_converg_pos.append([aver_robot_stable_x, aver_robot_stable_y])
+
+    aver_accum_flow = []
+    for i in range(len(accum_flow_DQN_results)):
+        aver_accum_flow.append( sum(accum_flow_DQN_results[i])/float(num_experiments) )
+        
+    init_pos_type = 8
+    for i in range(num_experiments):
+        print i
+        traj_pos_rx_plot = pos_rx_results[init_pos_type][i]
+        traj_pos_ry_plot = pos_ry_results[init_pos_type][i]
+        plt.plot(traj_pos_rx_plot, traj_pos_ry_plot)
+        plt.xlabel('Robot position on x axis')  
+        plt.ylabel('Robot position on y axis')  
+        plt.xlim((0, 4))
+        plt.ylim((0, 8))
+        plt.show()
+        plt.plot(traj_pos_rx_plot)
+        plt.ylabel('Robot position on x axis')
+        plt.xlabel('Time(s)')          
+        plt.show()
+        plt.plot(traj_pos_ry_plot)
+        plt.ylabel('Robot position on y axis')
+        plt.xlabel('Time(s)')          
+        plt.show() 
+    
+    # robot initial position (0.5, 0.5)   , traj 3 and 9 are good   (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[0][0]
+    save_to_mat['pos_ry_list'] = pos_ry_results[0][0]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_0_5', save_to_mat) 
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])
+
+    # robot initial position (0.5, 2.0)     , traj 0 and 8 are good   (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[1][0]
+    save_to_mat['pos_ry_list'] = pos_ry_results[1][0]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_2_0', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])
+    
+     # robot initial position (0.5, 4.0)  , traj 0 and 2 are good
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[2][2]
+    save_to_mat['pos_ry_list'] = pos_ry_results[2][2]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_4_0', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])
+     
+    # robot initial position (0.5, 6.0) ,   traj 6 are good
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[3][6]
+    save_to_mat['pos_ry_list'] = pos_ry_results[3][6]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_6_0', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])    
+
+    # robot initial position (0.5, 7.5),   traj 0, 9 are good     (selected, backup)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[4][0]
+    save_to_mat['pos_ry_list'] = pos_ry_results[4][0]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_7_5', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])   
+
+    # robot initial position (2.0, 0.5),   traj 1,4 are good     
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[5][4]
+    save_to_mat['pos_ry_list'] = pos_ry_results[5][4]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_2_0_y_0_5', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])   
+
+    # robot initial position (3.5, 0.5),   traj 2,5 are good     
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[6][2]
+    save_to_mat['pos_ry_list'] = pos_ry_results[6][2]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_3_5_y_0_5', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])  
+
+    # robot initial position (2.0, 7.5),   traj 6 are good      (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[7][6]
+    save_to_mat['pos_ry_list'] = pos_ry_results[7][6]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_2_0_y_7_5', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])  
+
+    # robot initial position (3.5, 7.5),   traj 9 are good     (selected)
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_results[8][0]
+    save_to_mat['pos_ry_list'] = pos_ry_results[8][0]
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_3_5_y_7_5', save_to_mat)  
+    plt.xlim((0, 4))
+    plt.ylim((0, 8))    
+    plt.plot(save_to_mat['pos_rx_list'], save_to_mat['pos_ry_list'])  
+    
+#    sum_pos_rx = np.zeros((402)) 
+#    sum_pos_ry = np.zeros((402)) 
+#    for j in range(num_experiments):
+#        sum_pos_rx = sum_pos_rx + pos_rx_results[init_pos_type][j]
+#        sum_pos_ry = sum_pos_ry + pos_ry_results[init_pos_type][j]
+#
+#    sum_pos_rx = sum_pos_rx/10.0 
+#    sum_pos_ry = sum_pos_ry/10.0
+#    plt.plot(sum_pos_rx, sum_pos_ry)   
+    
+#    list_index = 0+6
+#    sum(average_accum_outflow_list[list_index])/float(len(average_accum_outflow_list[list_index]))
+#    sum(pos_rx_stable_list[list_index])/float(len(pos_rx_stable_list[list_index]))
+#    sum(pos_ry_stable_list[list_index])/float(len(pos_ry_stable_list[list_index]))
+#    sum(converge_time_list[list_index])/float(len(converge_time_list[list_index]))
+
+##############################################################################################################
+########## 5 typical flow ratios, results are averaged over 10 runs  ######################
+    num_flowA_list = [75, 100, 150, 180, 200]
+    num_flowB_list = [225, 200, 150, 120, 100]
+    
+    pos_rx_stable_list = []
+    pos_ry_stable_list = []
+    converge_time_list = []
+    average_accum_outflow_list = []
+    
+    pos_rx_results = []
+    pos_ry_results = []
+    accum_flow_DQN_results = []
+    converge_time_DQN_results = []
+    
+    for pos_loop in range(len(num_flowA_list)):
+
+        accum_flow_DQN_robot_multip_runs = []
+        pos_rx_stable_multip_runs = []
+        pos_ry_stable_multip_runs = []
+        converge_time_multip_runs = []
+        
+        pos_rx_multip_runs = []
+        pos_ry_multip_runs = []
+                
+        
+        for i in range(num_experiments):  
+            print ("Robot with DQN:")
+            instane_flow_DQN_robot = []
+            accum_flow_DQN_robot = []    
+            
+            num_flowA = num_flowA_list[pos_loop]
+            num_flowB = num_flowB_list[pos_loop]
+            init_flowAB()
+            omega_rx = 0.0
+            
+            pos_rx = 0.5
+            pos_ry = 1.5
+            pos_rx_list = [pos_rx]
+            pos_ry_list = [pos_ry]
+            
+            start_time = time.time()
+            for step in range(numstep+1):
+                if step == 0:
+                    s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                    a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                    omega_rx = 0.0
+            
+                    move_direction = action_dic[str(a)]
+                    if move_direction == 'UP':
+                        pos_ry = pos_ry + robot_step_len
+                    elif move_direction == 'DOWN':
+                        pos_ry = pos_ry - robot_step_len
+                    elif move_direction == 'LEFT':
+                        pos_rx = pos_rx - robot_step_len
+                    elif move_direction == 'RIGHT':
+                        pos_rx = pos_rx + robot_step_len
+                    elif move_direction == 'STOP':
+                        pass                      
+                    else: raise ValueError('unacceptable moving direction') 
+
+                    if pos_rx > rx_max:
+                        pos_rx = rx_max
+                    elif pos_rx < rx_min:
+                        pos_rx = rx_min
+                        
+                    if pos_ry > ry_max:
+                        pos_ry = ry_max
+                    elif pos_ry < ry_min:
+                        pos_ry = ry_min                        
+                        
+                    pos_rx_list.append(pos_rx)
+                    pos_ry_list.append(pos_ry)
+                        
+                if step % sampl == 0 and step != 0:
+                    s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
+                    a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
+                    
+                    omega_rx = 0.0
+            
+                    move_direction = action_dic[str(a)]
+                    if move_direction == 'UP':
+                        pos_ry = pos_ry + robot_step_len
+                    elif move_direction == 'DOWN':
+                        pos_ry = pos_ry - robot_step_len
+                    elif move_direction == 'LEFT':
+                        pos_rx = pos_rx - robot_step_len
+                    elif move_direction == 'RIGHT':
+                        pos_rx = pos_rx + robot_step_len
+                    elif move_direction == 'STOP':
+                        pass                      
+                    else: raise ValueError('unacceptable moving direction') 
+
+                    if pos_rx > rx_max:
+                        pos_rx = rx_max
+                    elif pos_rx < rx_min:
+                        pos_rx = rx_min
+                        
+                    if pos_ry > ry_max:
+                        pos_ry = ry_max
+                    elif pos_ry < ry_min:
+                        pos_ry = ry_min
+    
+                    pos_rx_list.append(pos_rx)
+                    pos_ry_list.append(pos_ry)
+                        
+                if step % sampl != 0:           
+                    move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot            
+                
+                accum_flow_DQN_robot.append(np.sum(cout1))
+            print ("end of Robot with DQN:")
+            elapsed_time = time.time() - start_time
+            #print(elapsed_time)
+            accum_flow_DQN_robot_multip_runs.append(accum_flow_DQN_robot[-1])
+            print "accum_flow_DQN_robot:"+ str(accum_flow_DQN_robot[-1])
+            
+            for i in range(0,simulation_time):
+                instane_flow_DQN_robot.append(np.sum(cout1[i*sampl:(i+1)*sampl]))
+                
+            plt.plot(instane_flow_DQN_robot)
+            plt.show()            
+            
+            pos_rx_multip_runs.append(pos_rx_list)
+            pos_ry_multip_runs.append(pos_ry_list)
+
+            plt.plot(pos_rx_list)
+            plt.ylabel('Robot position on x axis')
+            plt.xlabel('Time(s)')     
+            plt.show()    
+            plt.plot(pos_ry_list)
+            plt.ylabel('Robot position on y axis')
+            plt.xlabel('Time(s)')  
+            plt.show() 
+            pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
+            pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
+            print "pos_rx_stable:"+ str(pos_rx_stable)
+            print "pos_ry_stable:"+ str(pos_ry_stable)
+            pos_rx_stable_multip_runs.append(pos_rx_stable)
+            pos_ry_stable_multip_runs.append(pos_ry_stable)
+            
+            if pos_rx_list[0] <= pos_rx_stable:
+                for idx, value in enumerate(pos_rx_list):
+                    if value >= pos_rx_stable:
+                        print idx
+                        rx_idx = idx
+                        break        
+            else:
+                for idx, value in enumerate(pos_rx_list):
+                    if value <= pos_rx_stable:
+                        print idx
+                        rx_idx = idx
+                        break        
+                
+            if pos_ry_list[0] <= pos_ry_stable:
+                for idx, value in enumerate(pos_ry_list):
+                    if value >= pos_ry_stable:
+                        print idx
+                        ry_idx = idx
+                        break        
+            else:
+                for idx, value in enumerate(pos_ry_list):
+                    if value <= pos_ry_stable:
+                        print idx
+                        ry_idx = idx
+                        break        
+            converge_time = max(rx_idx, ry_idx)
+            print "converge_time:" + str(converge_time)  
+            converge_time_multip_runs.append(converge_time)              
+        
+        pos_rx_results.append(pos_rx_multip_runs)
+        pos_ry_results.append(pos_ry_multip_runs)
+        accum_flow_DQN_results.append(accum_flow_DQN_robot_multip_runs)
+        converge_time_DQN_results.append(converge_time_multip_runs)
+        
+        average_accum_outflow = sum(accum_flow_DQN_robot_multip_runs)/float(len(accum_flow_DQN_robot_multip_runs))
+        print "average_accum_outflow:" + str(average_accum_outflow)
+        average_accum_outflow_list.append(accum_flow_DQN_robot_multip_runs)
+        
+        average_pos_rx_stable = sum(pos_rx_stable_multip_runs)/float(len(pos_rx_stable_multip_runs))
+        average_pos_ry_stable = sum(pos_ry_stable_multip_runs)/float(len(pos_ry_stable_multip_runs))
+        print "average_pos_rx_stable:" + str(average_pos_rx_stable)
+        print "average_pos_ry_stable:" + str(average_pos_ry_stable)            
+        pos_rx_stable_list.append(pos_rx_stable_multip_runs)
+        pos_ry_stable_list.append(pos_ry_stable_multip_runs)
+        
+        average_converge_time = sum(converge_time_multip_runs)/float(len(converge_time_multip_runs))
+        print "average_converge_time:" + str(average_converge_time)
+        converge_time_list.append(converge_time_multip_runs)
+
+    
+    with open(os.path.join('../results/', 'converge_result_5_flow.pkl'), 'w') as f:
+        pickle.dump([pos_rx_results, pos_ry_results, accum_flow_DQN_results, converge_time_DQN_results, 
+                     average_accum_outflow_list, pos_rx_stable_list, pos_ry_stable_list, converge_time_list], f)
+    
+    #average converging position
+    aver_converg_pos = []
+    for i in range(len(pos_rx_stable_list)):
+        aver_robot_stable_x = sum(pos_rx_stable_list[i])/float(num_experiments)
+        aver_robot_stable_y = sum(pos_ry_stable_list[i])/float(num_experiments)
+        aver_converg_pos.append([aver_robot_stable_x, aver_robot_stable_y])
+
+    aver_accum_flow = []
+    for i in range(len(accum_flow_DQN_results)):
+        aver_accum_flow.append( sum(accum_flow_DQN_results[i])/float(num_experiments) )
+
+            
+    list_index = 0+6
+    sum(average_accum_outflow_list[list_index])/float(len(average_accum_outflow_list[list_index]))
+    sum(pos_rx_stable_list[list_index])/float(len(pos_rx_stable_list[list_index]))
+    sum(pos_ry_stable_list[list_index])/float(len(pos_ry_stable_list[list_index]))
+    sum(converge_time_list[list_index])/float(len(converge_time_list[list_index]))
+
+
+#######################################################################################################
+######################### save resulte to Matlab  #####################################
+#######################################################################################################
+    save_to_mat = {}
+    save_to_mat['rList'] = average_rList
+    scipy.io.savemat('../data/save_to_mat/accum_rewards', save_to_mat)
+
+    save_to_mat = {}    
+    window_size = 5        
+    average_instane_flow_no_robot = np.convolve(instane_flow_no_robot, np.ones((window_size,))/window_size, mode='valid')
+    average_instane_flow_rand_robot = np.convolve(instane_flow_rand_robot, np.ones((window_size,))/window_size, mode='valid')
+    average_instane_flow_DQN_robot = np.convolve(instane_flow_DQN_robot, np.ones((window_size,))/window_size, mode='valid')        
+    save_to_mat['instane_flow_no_robot'] = average_instane_flow_no_robot
+    save_to_mat['accum_flow_no_robot'] = accum_flow_no_robot
+    save_to_mat['instane_flow_rand_robot'] = average_instane_flow_rand_robot
+    save_to_mat['accum_flow_rand_robot'] = accum_flow_rand_robot  
+    save_to_mat['instane_flow_DQN_robot'] = average_instane_flow_DQN_robot
+    save_to_mat['accum_flow_DQN_robot'] = accum_flow_DQN_robot     
+    scipy.io.savemat('../data/save_to_mat/outflow_comparision', save_to_mat)
+
+
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_0_5', save_to_mat)
+
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_2_0', save_to_mat)
+
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_4_0', save_to_mat)
+
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_5_y_6_0', save_to_mat)
+    
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_2_y_7_8', save_to_mat)    
+
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_2_y_6_0', save_to_mat)  
+
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_2_y_4_0', save_to_mat)  
+
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_2_y_2_0', save_to_mat)  
+
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_0_2_y_0_2', save_to_mat)  
+
+    save_to_mat = {} 
+    save_to_mat['pos_rx_list'] = pos_rx_list
+    save_to_mat['pos_ry_list'] = pos_ry_list
+    scipy.io.savemat('../data/save_to_mat/robot_traj_x_2_0_y_0_2', save_to_mat)  
+    
 ###########################################################################################################
 ############################ plot averaged outflow ########################################
         
@@ -1061,176 +2481,6 @@ if PLOT_RESULT == True:
     plt.xlabel('Epoch') 
     plt.show()
 
-##############################################################################################################
-########## robot position is initialized in 0.5~4.0, results are averaged over 10 runs  ######################
-
-    init_pos_rx_list = [x*0.5 for x in range(1, 8)]
-    init_pos_ry_list = [x*0.5 for x in range(1, 8)]
-    pos_rx_stable_list = []
-    pos_ry_stable_list = []
-    converge_time_list = []
-    average_accum_outflow_list = []
-    for pos_rx_init in init_pos_rx_list:
-        for pos_ry_init in init_pos_ry_list:
-
-            accum_flow_DQN_robot_multip_runs = []
-            pos_rx_stable_multip_runs = []
-            pos_ry_stable_multip_runs = []
-            converge_time_multip_runs = []
-            for i in range(num_experiments):  
-                print ("Robot with DQN:")
-                instane_flow_DQN_robot = []
-                accum_flow_DQN_robot = []      
-                init_flowAB()
-                omega_rx = 0.0
-                
-                pos_rx = pos_rx_init
-                pos_ry = pos_ry_init
-                pos_rx_list = []
-                pos_ry_list = []
-                
-                start_time = time.time()
-                for step in range(numstep+1):
-                    if step == 0:
-                        s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
-                        a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
-                        omega_rx = 0.0
-                
-                        move_direction = action_dic[str(a)]
-                        if move_direction == 'UP':
-                            pos_ry = pos_ry + robot_step_len
-                        elif move_direction == 'DOWN':
-                            pos_ry = pos_ry - robot_step_len
-                        elif move_direction == 'LEFT':
-                            pos_rx = pos_rx - robot_step_len
-                        elif move_direction == 'RIGHT':
-                            pos_rx = pos_rx + robot_step_len
-                        elif move_direction == 'STOP':
-                            pass                      
-                        else: raise ValueError('unacceptable moving direction') 
-
-                        if pos_rx > rx_max:
-                            pos_rx = rx_max
-                        elif pos_rx < rx_min:
-                            pos_rx = rx_min
-                            
-                        if pos_ry > 7.5:
-                            pos_ry = 7.5
-                        elif pos_ry < ry_min:
-                            pos_ry = ry_min                        
-                            
-                        pos_rx_list.append(pos_rx)
-                        pos_ry_list.append(pos_ry)
-                            
-                    if step % sampl == 0 and step != 0:
-                        s,_=move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=True)
-                        a = sess.run(mainQN.predict,feed_dict={mainQN.observation:np.expand_dims(s, axis=0)})[0]
-                        
-                        omega_rx = 0.0
-                
-                        move_direction = action_dic[str(a)]
-                        if move_direction == 'UP':
-                            pos_ry = pos_ry + robot_step_len
-                        elif move_direction == 'DOWN':
-                            pos_ry = pos_ry - robot_step_len
-                        elif move_direction == 'LEFT':
-                            pos_rx = pos_rx - robot_step_len
-                        elif move_direction == 'RIGHT':
-                            pos_rx = pos_rx + robot_step_len
-                        elif move_direction == 'STOP':
-                            pass                      
-                        else: raise ValueError('unacceptable moving direction') 
-
-                        if pos_rx > rx_max:
-                            pos_rx = rx_max
-                        elif pos_rx < rx_min:
-                            pos_rx = rx_min
-                            
-                        if pos_ry > 7.5:
-                            pos_ry = 7.5
-                        elif pos_ry < ry_min:
-                            pos_ry = ry_min
-        
-                        pos_rx_list.append(pos_rx)
-                        pos_ry_list.append(pos_ry)
-                            
-                    if step % sampl != 0:           
-                        move_crowd(robot_flag = 1.0, render_flag = False, omega=omega_rx, numthstep=step, gener_flag=False) #robot_flag < 0 , no robot            
-                    
-                    accum_flow_DQN_robot.append(np.sum(cout1))
-                print ("end of Robot with DQN:")
-                elapsed_time = time.time() - start_time
-                #print(elapsed_time)
-                accum_flow_DQN_robot_multip_runs.append(accum_flow_DQN_robot[-1])
-                print "accum_flow_DQN_robot:"+ str(accum_flow_DQN_robot[-1])
-
-                plt.plot(pos_rx_list)
-                plt.ylabel('Robot position on x axis')
-                plt.xlabel('Time(s)')     
-                plt.show()    
-                plt.plot(pos_ry_list)
-                plt.ylabel('Robot position on y axis')
-                plt.xlabel('Time(s)')  
-                plt.show() 
-                pos_rx_stable = sum(pos_rx_list[-200:])/float(200)
-                pos_ry_stable = sum(pos_ry_list[-200:])/float(200)
-                print "pos_rx_stable:"+ str(pos_rx_stable)
-                print "pos_ry_stable:"+ str(pos_ry_stable)
-                pos_rx_stable_multip_runs.append(pos_rx_stable)
-                pos_ry_stable_multip_runs.append(pos_ry_stable)
-                
-                if pos_rx_list[0] <= pos_rx_stable:
-                    for idx, value in enumerate(pos_rx_list):
-                        if value >= pos_rx_stable:
-                            print idx
-                            rx_idx = idx
-                            break        
-                else:
-                    for idx, value in enumerate(pos_rx_list):
-                        if value <= pos_rx_stable:
-                            print idx
-                            rx_idx = idx
-                            break        
-                    
-                if pos_ry_list[0] <= pos_ry_stable:
-                    for idx, value in enumerate(pos_ry_list):
-                        if value >= pos_ry_stable:
-                            print idx
-                            ry_idx = idx
-                            break        
-                else:
-                    for idx, value in enumerate(pos_ry_list):
-                        if value <= pos_ry_stable:
-                            print idx
-                            ry_idx = idx
-                            break        
-                converge_time = max(rx_idx, ry_idx)
-                print "converge_time:" + str(converge_time)  
-                converge_time_multip_runs.append(converge_time)              
-            
-            average_accum_outflow = sum(accum_flow_DQN_robot_multip_runs)/float(len(accum_flow_DQN_robot_multip_runs))
-            print "average_accum_outflow:" + str(average_accum_outflow)
-            average_accum_outflow_list.append(accum_flow_DQN_robot_multip_runs)
-            
-            average_pos_rx_stable = sum(pos_rx_stable_multip_runs)/float(len(pos_rx_stable_multip_runs))
-            average_pos_ry_stable = sum(pos_ry_stable_multip_runs)/float(len(pos_ry_stable_multip_runs))
-            print "average_pos_rx_stable:" + str(average_pos_rx_stable)
-            print "average_pos_ry_stable:" + str(average_pos_ry_stable)            
-            pos_rx_stable_list.append(pos_rx_stable_multip_runs)
-            pos_ry_stable_list.append(pos_ry_stable_multip_runs)
-            
-            average_converge_time = sum(converge_time_multip_runs)/float(len(converge_time_multip_runs))
-            print "average_converge_time:" + str(average_converge_time)
-            converge_time_list.append(converge_time_multip_runs)
-
-#            with open(os.path.join(model_path, 'converge_result.pkl'), 'w') as f:
-#                pickle.dump([average_accum_outflow_list, pos_rx_stable_list, pos_ry_stable_list, converge_time_list], f)
-                
-    list_index = 0+6
-    sum(average_accum_outflow_list[list_index])/float(len(average_accum_outflow_list[list_index]))
-    sum(pos_rx_stable_list[list_index])/float(len(pos_rx_stable_list[list_index]))
-    sum(pos_ry_stable_list[list_index])/float(len(pos_ry_stable_list[list_index]))
-    sum(converge_time_list[list_index])/float(len(converge_time_list[list_index]))
 
 
 ###########################################################################################################
@@ -1307,8 +2557,8 @@ if PLOT_RESULT == True:
                 elif pos_rx < rx_min:
                     pos_rx = rx_min
                     
-                if pos_ry > 7.5:
-                    pos_ry = 7.5
+                if pos_ry > ry_max:
+                    pos_ry = ry_max
                 elif pos_ry < ry_min:
                     pos_ry = ry_min                
                     
@@ -1370,8 +2620,8 @@ if PLOT_RESULT == True:
                 elif pos_rx < rx_min:
                     pos_rx = rx_min
                     
-                if pos_ry > 7.5:
-                    pos_ry = 7.5
+                if pos_ry > ry_max:
+                    pos_ry = ry_max
                 elif pos_ry < ry_min:
                     pos_ry = ry_min                
 
